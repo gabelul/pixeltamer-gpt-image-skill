@@ -19,7 +19,7 @@ prog="$(basename "$0")"
 
 usage() {
   cat >&2 <<EOF
-usage: $prog -p "<prompt>" -o <output.png> [--size WxH] [--quality Q] [-n N] [--reasoning E] [--debug]
+usage: $prog -p "<prompt>" -o <output.png> [--size WxH] [--quality Q] [-n N] [-i FILE]... [--reasoning E] [--debug]
 
 required:
   -p, --prompt PROMPT     image description (quote it)
@@ -29,6 +29,9 @@ optional:
   --size WxH              e.g. 1024x1024, 1536x1024, 1024x1536, auto (default: auto)
   --quality Q             low | medium | high | auto (default: auto)
   -n, --count N           number of images, 1-10 (default: 1)
+  -i, --image FILE        reference image to attach for character/style consistency.
+                          Pass once per file; codex's image_gen will use them as
+                          visual context. Repeatable (use -i twice for two images).
   --reasoning E           codex reasoning effort: low | medium | high (default: medium)
   --debug                 keep codex log on success and print its path
 
@@ -47,6 +50,7 @@ quality="auto"
 count=1
 reasoning="medium"
 debug=0
+images=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -55,6 +59,7 @@ while [[ $# -gt 0 ]]; do
     --size)         size="${2:-}"; shift 2 ;;
     --quality)      quality="${2:-}"; shift 2 ;;
     -n|--count)     count="${2:-}"; shift 2 ;;
+    -i|--image)     images+=("${2:-}"); shift 2 ;;
     --reasoning)    reasoning="${2:-}"; shift 2 ;;
     --debug)        debug=1; shift ;;
     -h|--help)      usage ;;
@@ -66,6 +71,19 @@ done
 [[ -z "$out" ]] && { echo "$prog: --out required" >&2; usage; }
 [[ "$count" =~ ^[0-9]+$ ]] || { echo "$prog: -n must be a positive integer" >&2; usage; }
 (( count >= 1 && count <= 10 )) || { echo "$prog: -n must be 1-10" >&2; usage; }
+
+# Validate every reference image exists and resolve to absolute paths so codex
+# can find them regardless of where it cd's into. Bail fast on a missing file
+# rather than discovering it 60s into a codex run.
+image_args=()
+if (( ${#images[@]} > 0 )); then
+  for img in "${images[@]}"; do
+    [[ -z "$img" ]] && { echo "$prog: -i/--image given an empty path" >&2; exit 2; }
+    [[ -f "$img" ]] || { echo "$prog: reference image not found: $img" >&2; exit 2; }
+    abs_img="$(cd "$(dirname "$img")" && pwd)/$(basename "$img")"
+    image_args+=(-i "$abs_img")
+  done
+fi
 
 # --- preflight: codex installed and logged in -------------------------------
 
@@ -80,7 +98,7 @@ EOF
   exit 127
 fi
 
-if ! "$CODEX" login status 2>/dev/null | grep -qi "logged in"; then
+if ! "$CODEX" login status 2>&1 | grep -qi "logged in"; then
   echo "$prog: codex is not logged in. Run: codex login" >&2
   exit 127
 fi
@@ -123,8 +141,12 @@ build_clean_prompt() {
     done
     target_block="$lines"
   fi
+  local ref_note=""
+  if (( ${#images[@]} > 0 )); then
+    ref_note=$'\n''0. Attached to this message are '"${#images[@]}"' reference image(s). Look at them and treat them as the visual style and character anchor for the new image — match the character design, color palette, lighting, and proportions you see there. Do not literally copy or paste the references; generate a new composition that visibly belongs to the same visual world.'
+  fi
   cat <<EOF
-Perform the following tasks:
+Perform the following tasks:${ref_note}
 1. Use the built-in image_gen tool to generate $count image(s).
 2. Prompt: $prompt
 3. Size: $size
@@ -147,8 +169,12 @@ build_forced_prompt() {
       target_block+=$'\n'"  $(( i + 1 )). ${target_paths[$i]}"
     done
   fi
+  local ref_note=""
+  if (( ${#images[@]} > 0 )); then
+    ref_note=$'\n\n''REFERENCES: '"${#images[@]}"' image(s) are attached to this message. Use them as the visual anchor — match the character design, palette, lighting, and proportions. Generate a new composition in the same visual world; do not literally copy them.'
+  fi
   cat <<EOF
-Use your image_generation tool (gpt-image-2) to create $count image(s).
+Use your image_generation tool (gpt-image-2) to create $count image(s).${ref_note}
 
 PROMPT: $prompt
 SIZE: $size
@@ -170,11 +196,18 @@ run_codex() {
   local log
   log="$(mktemp "${TMPDIR:-/tmp}/pixeltamer-codex.XXXXXX")"
 
-  if ! "$CODEX" exec \
-        --skip-git-repo-check \
-        -s workspace-write \
-        -c "model_reasoning_effort=\"${reasoning}\"" \
-        "$prompt_text" </dev/null >"$log" 2>&1
+  # Why feed the prompt via stdin instead of as a positional arg:
+  # `codex exec`'s `-i, --image <FILE>...` is greedy — when an `-i` flag
+  # is present, the next positional is parsed as ANOTHER image file, not
+  # as the prompt. Piping the prompt through stdin sidesteps that entirely
+  # and works whether or not -i was passed.
+  if ! printf '%s' "$prompt_text" \
+      | "$CODEX" exec \
+            --skip-git-repo-check \
+            -s workspace-write \
+            -c "model_reasoning_effort=\"${reasoning}\"" \
+            "${image_args[@]}" \
+            >"$log" 2>&1
   then
     echo "$prog: codex exec failed (last 30 log lines):" >&2
     tail -n 30 "$log" >&2
