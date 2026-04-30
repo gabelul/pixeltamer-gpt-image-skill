@@ -1,0 +1,29 @@
+# Release automation via release-please.
+# Triggered by conventional commits on main:
+#   feat: → minor bump (0.X.0)
+#   fix:  → patch bump (0.0.X)
+#   chore/docs/style/refactor/test/ci: → patch bump (no feature release)
+#   BREAKING CHANGE: → major bump (X.0.0)
+#
+# IMPORTANT: chore: commits do NOT trigger a release.
+# Use chore: for SVGs, templates, README changes, repo housekeeping.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+          # CUSTOMIZE: set your package name
+          package-name: pixeltamer

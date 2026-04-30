@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+# pixeltamer — image generation dispatcher.
+#
+# Picks a backend (OpenAI API or codex CLI), auto-detects from env, and dispatches
+# to the right helper script. First time it runs without config, walks you through
+# a quick interactive setup.
+#
+# Subcommands:
+#   generate  text -> image (default if no subcommand given)
+#   edit      modify or inpaint a single image (API only)
+#   compose   blend 2-16 reference images into one (API only)
+#   batch     plan + generate multiple images with verification (multi-image flow)
+#   config    re-run interactive setup
+#   doctor    diagnose your install
+#
+# Run `pixeltamer <subcommand> --help` for per-command flags.
+
+set -euo pipefail
+
+prog="$(basename "$0")"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/pixeltamer"
+config_file="$config_dir/config.json"
+
+# --- helpers ----------------------------------------------------------------
+
+_log()  { printf "%s\n" "$*" >&2; }
+_die()  { _log "$prog: $*"; exit 1; }
+_have() { command -v "$1" >/dev/null 2>&1; }
+
+_have_api_key() {
+  [[ -n "${OPENAI_IMAGE_API_KEY:-}" ]] || [[ -n "${OPENAI_API_KEY:-}" ]]
+}
+
+_have_codex() {
+  _have codex && codex login status 2>/dev/null | grep -qi "logged in"
+}
+
+_load_config() {
+  # Load saved backend preference, if any.
+  if [[ -f "$config_file" ]] && _have python3; then
+    PIXELTAMER_BACKEND_PREF="$(python3 -c "
+import json, sys
+try:
+  print(json.load(open('$config_file')).get('backend', ''))
+except Exception:
+  pass
+")"
+  fi
+  PIXELTAMER_BACKEND_PREF="${PIXELTAMER_BACKEND_PREF:-auto}"
+}
+
+_save_config() {
+  local backend="$1"
+  mkdir -p "$config_dir"
+  if _have python3; then
+    python3 -c "
+import json, os
+cfg = {}
+p = '$config_file'
+if os.path.exists(p):
+  try:
+    cfg = json.load(open(p))
+  except Exception:
+    cfg = {}
+cfg['backend'] = '$backend'
+json.dump(cfg, open(p, 'w'), indent=2)
+"
+  else
+    printf '{ "backend": "%s" }\n' "$backend" >"$config_file"
+  fi
+  _log "saved → $config_file"
+}
+
+_detect_backend() {
+  # Resolve which backend to use right now, honoring (in order):
+  #   1. --backend flag (already in $BACKEND_OVERRIDE)
+  #   2. PIXELTAMER_BACKEND env var
+  #   3. saved config preference
+  #   4. auto: api if key set, else codex if logged in
+  local choice="${BACKEND_OVERRIDE:-${PIXELTAMER_BACKEND:-${PIXELTAMER_BACKEND_PREF:-auto}}}"
+  case "$choice" in
+    api|openai)
+      _have_api_key || _die "backend=api but no OPENAI_IMAGE_API_KEY/OPENAI_API_KEY set"
+      echo "api"
+      ;;
+    codex)
+      _have_codex || _die "backend=codex but codex CLI not installed or not logged in"
+      echo "codex"
+      ;;
+    auto|"")
+      if _have_api_key; then echo "api"
+      elif _have_codex;   then echo "codex"
+      else
+        _die "no backend available. Run \`$prog config\` to set one up."
+      fi
+      ;;
+    *)
+      _die "unknown backend: $choice (expected api|codex|auto)"
+      ;;
+  esac
+}
+
+# --- subcommands ------------------------------------------------------------
+
+cmd_generate() {
+  local backend
+  backend="$(_detect_backend)"
+  case "$backend" in
+    api)   exec python3 "$script_dir/pixeltamer_api.py" generate "$@" ;;
+    codex) exec "$script_dir/pixeltamer_codex.sh" "$@" ;;
+  esac
+}
+
+cmd_edit() {
+  local backend
+  backend="$(_detect_backend)"
+  if [[ "$backend" != "api" ]]; then
+    _die "\`edit\` requires the API backend (codex CLI's image_gen tool doesn't support edits). Set OPENAI_API_KEY or pass --backend api."
+  fi
+  exec python3 "$script_dir/pixeltamer_api.py" edit "$@"
+}
+
+cmd_compose() {
+  local backend
+  backend="$(_detect_backend)"
+  if [[ "$backend" != "api" ]]; then
+    _die "\`compose\` requires the API backend. Set OPENAI_API_KEY or pass --backend api."
+  fi
+  exec python3 "$script_dir/pixeltamer_api.py" compose "$@"
+}
+
+cmd_batch() {
+  # Multi-image state-machine flow. Delegates to verify-images.mjs which
+  # parses prompts.md, calls the right backend per entry, and verifies output.
+  if ! _have node; then
+    _die "\`batch\` needs Node.js 18+. Install from https://nodejs.org"
+  fi
+  exec node "$script_dir/verify-images.mjs" "$@"
+}
+
+cmd_config() {
+  cat <<EOF >&2
+$prog setup
+==========
+Pick how pixeltamer should generate images.
+
+  [1] OpenAI API key       (fastest, full features, costs per image)
+  [2] Codex CLI            (uses your ChatGPT subscription, no key required)
+  [3] Auto-detect          (try API first, fall back to codex)  [recommended]
+  [4] Cancel
+EOF
+  printf "your pick [3]: " >&2
+  read -r choice
+  case "${choice:-3}" in
+    1) _save_config api ;;
+    2) _save_config codex ;;
+    3) _save_config auto ;;
+    4) _log "cancelled."; exit 0 ;;
+    *) _die "invalid choice: $choice" ;;
+  esac
+
+  echo >&2
+  echo "Current backend status:" >&2
+  if _have_api_key; then echo "  api    ✓ key present"; else echo "  api    ✗ set OPENAI_API_KEY"; fi >&2
+  if _have_codex;   then echo "  codex  ✓ codex installed and logged in"; else echo "  codex  ✗ run: codex login"; fi >&2
+}
+
+cmd_doctor() {
+  echo "$prog doctor"
+  echo "=============="
+  echo
+  echo "config file:        $config_file"
+  if [[ -f "$config_file" ]]; then
+    echo "config exists:      yes"
+    [[ -r "$config_file" ]] && cat "$config_file" | sed 's/^/  /'
+  else
+    echo "config exists:      no  (run: $prog config)"
+  fi
+  echo
+  echo "backend availability:"
+  if _have_api_key; then
+    echo "  api    ✓ OPENAI_*_KEY set"
+  else
+    echo "  api    ✗ no OPENAI_IMAGE_API_KEY or OPENAI_API_KEY"
+  fi
+  if _have codex; then
+    if codex login status 2>/dev/null | grep -qi "logged in"; then
+      echo "  codex  ✓ installed and logged in"
+    else
+      echo "  codex  ⚠ installed but not logged in (run: codex login)"
+    fi
+  else
+    echo "  codex  ✗ not installed (npm install -g @openai/codex)"
+  fi
+  echo
+  echo "runtime versions:"
+  echo "  python3: $(python3 --version 2>&1 || echo 'missing')"
+  echo "  node:    $(node --version 2>&1 || echo 'missing')"
+  echo "  bash:    $BASH_VERSION"
+}
+
+usage() {
+  cat <<EOF
+$prog — image generation for Claude Code, Codex CLI, OpenCode, and friends.
+
+usage:
+  $prog [--backend api|codex|auto] <subcommand> [args...]
+
+subcommands:
+  generate (default)   text -> image
+  edit                 modify or inpaint a single image (API only)
+  compose              blend 2-16 reference images into one (API only)
+  batch                plan + generate multiple images with verification
+  config               interactive setup
+  doctor               diagnose install
+
+shortcuts:
+  $prog "make me a poster of X"     # = generate -p "..."
+  $prog -p "X" -o image.png         # = generate
+
+env:
+  OPENAI_API_KEY / OPENAI_IMAGE_API_KEY     OpenAI API auth
+  PIXELTAMER_BACKEND                         api | codex | auto
+  OPENAI_IMAGE_BASE_URL                      override API base URL
+  OPENAI_IMAGE_MODEL                         override model (default gpt-image-2)
+
+run \`$prog <subcommand> --help\` for per-command flags.
+EOF
+}
+
+# --- main -------------------------------------------------------------------
+
+# Pull --backend off the front before subcommand dispatch.
+BACKEND_OVERRIDE=""
+if [[ "${1:-}" == "--backend" ]]; then
+  BACKEND_OVERRIDE="${2:-}"
+  shift 2
+elif [[ "${1:-}" == --backend=* ]]; then
+  BACKEND_OVERRIDE="${1#--backend=}"
+  shift
+fi
+
+_load_config
+
+# First-run nudge: if no config and no backend obviously available, prompt setup.
+if [[ ! -f "$config_file" ]] && ! _have_api_key && ! _have_codex; then
+  if [[ -t 0 && -t 1 ]]; then
+    _log "$prog: no backend configured and no creds detected — running setup..."
+    _log ""
+    cmd_config
+    _log ""
+  fi
+fi
+
+# Dispatch
+case "${1:-}" in
+  ""|-h|--help|help)
+    usage
+    ;;
+  generate|gen)
+    shift
+    cmd_generate "$@"
+    ;;
+  edit)
+    shift
+    cmd_edit "$@"
+    ;;
+  compose)
+    shift
+    cmd_compose "$@"
+    ;;
+  batch)
+    shift
+    cmd_batch "$@"
+    ;;
+  config|setup)
+    shift
+    cmd_config "$@"
+    ;;
+  doctor|diagnose)
+    shift
+    cmd_doctor "$@"
+    ;;
+  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--format|--moderation|--user|--concurrency|--model|--mask)
+    # Bare flags = implicit `generate`.
+    cmd_generate "$@"
+    ;;
+  *)
+    # Free-text first arg = treat as a generate prompt: `pixeltamer "make me X"`
+    if [[ "$1" != -* ]]; then
+      cmd_generate -p "$1" "${@:2}"
+    else
+      _die "unknown subcommand: $1 (try: $prog --help)"
+    fi
+    ;;
+esac

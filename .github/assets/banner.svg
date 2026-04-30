@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f0f"/>
+      <stop offset="100%" style="stop-color:#1a1a2e"/>
+    </linearGradient>
+    <linearGradient id="accent1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#818cf8"/>
+    </linearGradient>
+    <linearGradient id="accent2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#ec4899"/>
+      <stop offset="100%" style="stop-color:#f472b6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="400" fill="url(#bg)" rx="12"/>
+
+  <text x="60" y="80" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" fill="white">pixeltamer</text>
+  <text x="60" y="115" font-family="system-ui, -apple-system, sans-serif" font-size="18" fill="#888" font-weight="400">image generation skill for AI coding agents &#183; gpt-image-2</text>
+
+  <rect x="60" y="145" width="520" height="200" rx="8" fill="#1e1e2e" stroke="#6366f144" stroke-width="1"/>
+  <text x="80" y="175" font-family="ui-monospace, monospace" font-size="13" fill="#6366f1" font-weight="600">PROMPT THAT BARELY WORKS</text>
+  <line x1="80" y1="188" x2="560" y2="188" stroke="#ffffff11"/>
+  <text x="80" y="212" font-family="ui-monospace, monospace" font-size="12.5" fill="#666">8K, ultra detailed, masterpiece,</text>
+  <text x="80" y="237" font-family="ui-monospace, monospace" font-size="12.5" fill="#666">trending on artstation, beautiful</text>
+  <text x="80" y="262" font-family="ui-monospace, monospace" font-size="12.5" fill="#666">professional premium photography</text>
+  <text x="80" y="287" font-family="ui-monospace, monospace" font-size="12.5" fill="#666">&#8594; generic AI image slop</text>
+
+  <text x="600" y="255" font-family="system-ui, sans-serif" font-size="28" fill="#888">&#8594;</text>
+
+  <rect x="640" y="145" width="500" height="200" rx="8" fill="#1e1e2e" stroke="#ec489944" stroke-width="1"/>
+  <text x="660" y="175" font-family="ui-monospace, monospace" font-size="13" fill="#ec4899" font-weight="600">PROMPT THAT ACTUALLY WORKS</text>
+  <line x1="660" y1="188" x2="1120" y2="188" stroke="#ffffff11"/>
+  <text x="660" y="212" font-family="ui-monospace, monospace" font-size="12.5" fill="#c8c8c8">Create a pitch-deck slide titled</text>
+  <text x="660" y="237" font-family="ui-monospace, monospace" font-size="12.5" fill="#c8c8c8">"Q3 Revenue". Layout: chart left,</text>
+  <text x="660" y="262" font-family="ui-monospace, monospace" font-size="12.5" fill="#c8c8c8">KPIs right. Render text exactly.</text>
+  <text x="660" y="287" font-family="ui-monospace, monospace" font-size="12.5" fill="#c8c8c8">&#8594; editorial-quality output</text>
+
+  <rect x="60" y="360" width="1080" height="28" rx="4" fill="#ffffff08"/>
+  <text x="80" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#888">2 backends</text>
+  <text x="230" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#555">|</text>
+  <text x="250" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#888">3 modes</text>
+  <text x="430" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#555">|</text>
+  <text x="450" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#888">6 recipes</text>
+  <text x="630" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#555">|</text>
+  <text x="650" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#888">29 tests</text>
+  <text x="850" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#555">|</text>
+  <text x="870" y="379" font-family="ui-monospace, monospace" font-size="12" fill="#888">MIT &#183; works in 50+ agents</text>
+</svg>

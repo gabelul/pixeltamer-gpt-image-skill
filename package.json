@@ -1,0 +1,28 @@
+{
+  "name": "pixeltamer",
+  "version": "0.1.0",
+  "description": "Image generation skill for Claude Code, Codex CLI, OpenCode and other agents. Two backends (OpenAI API or Codex CLI), three modes (one-shot, batch, multi-reference), shipped with prompting doctrine and production recipes.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "image-size": "^1.2.0"
+  },
+  "keywords": [
+    "claude-code",
+    "claude-skill",
+    "codex-cli",
+    "opencode",
+    "image-generation",
+    "gpt-image",
+    "ai-skill",
+    "agent-skill"
+  ],
+  "author": "gabelul",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gabelul/pixeltamer-gpt-image-skill"
+  }
+}
