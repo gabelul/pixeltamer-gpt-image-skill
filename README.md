@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/banner.svg" alt="pixeltamer — image generation skill for AI coding agents" width="100%"/>
+  <img src=".github/assets/hero-with-text.png" alt="pixeltamer — image generation skill for AI coding agents" width="100%"/>
 </p>
 
 # pixeltamer — image generation skill for AI coding agents | gpt-image-2 toolkit
@@ -103,6 +103,14 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 ---
 
 ## Three modes (plus batch)
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src=".github/assets/mode-generate.png" alt="generate mode"/><br/><b>generate</b><br/><sub>text → image</sub></td>
+    <td align="center" width="33%"><img src=".github/assets/mode-edit.png" alt="edit mode"/><br/><b>edit</b><br/><sub>change one thing, keep the rest</sub></td>
+    <td align="center" width="33%"><img src=".github/assets/mode-compose.png" alt="compose mode"/><br/><b>compose</b><br/><sub>blend 2–16 references into one</sub></td>
+  </tr>
+</table>
 
 ```bash
 # one-shot generation — easiest
