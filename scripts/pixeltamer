@@ -33,7 +33,10 @@ _have_api_key() {
 }
 
 _have_codex() {
-  _have codex && codex login status 2>/dev/null | grep -qi "logged in"
+  # Note: `codex login status` writes its "Logged in" message to stderr in
+  # current versions, so we redirect stderr into stdout before piping to grep.
+  # Using `2>/dev/null` here would silently hide the very string we grep for.
+  _have codex && codex login status 2>&1 | grep -qi "logged in"
 }
 
 _load_config() {
@@ -185,7 +188,7 @@ cmd_doctor() {
     echo "  api    ✗ no OPENAI_IMAGE_API_KEY or OPENAI_API_KEY"
   fi
   if _have codex; then
-    if codex login status 2>/dev/null | grep -qi "logged in"; then
+    if codex login status 2>&1 | grep -qi "logged in"; then
       echo "  codex  ✓ installed and logged in"
     else
       echo "  codex  ⚠ installed but not logged in (run: codex login)"
