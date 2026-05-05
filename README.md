@@ -134,6 +134,14 @@ pixeltamer batch ./prompts.md
 
 ---
 
+## Gallery — built with pixeltamer, prompts included
+
+Real images we shipped with this repo (mascot, social card, hero, mode trio, comparison infographic) plus the **exact prompt** that produced each one. Copy a prompt, drop it into your own `pixeltamer generate -p "..."` call, get something in the same family. Each entry tags which patterns from `references/prompt-patterns.md` it uses, so the gallery doubles as a worked-example index for the doctrine.
+
+→ [`gallery/README.md`](gallery/README.md)
+
+---
+
 ## What's in the box
 
 ```
