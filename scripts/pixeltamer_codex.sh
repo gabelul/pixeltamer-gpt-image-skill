@@ -201,12 +201,16 @@ run_codex() {
   # is present, the next positional is parsed as ANOTHER image file, not
   # as the prompt. Piping the prompt through stdin sidesteps that entirely
   # and works whether or not -i was passed.
+  # The `${arr[@]+"${arr[@]}"}` idiom expands to nothing when the array is
+  # empty and to the array's elements when it isn't — compatible with the
+  # macOS system bash 3.2, which otherwise trips `set -u` on empty array
+  # expansion (`"${image_args[@]}"` alone errors as "unbound variable").
   if ! printf '%s' "$prompt_text" \
       | "$CODEX" exec \
             --skip-git-repo-check \
             -s workspace-write \
             -c "model_reasoning_effort=\"${reasoning}\"" \
-            "${image_args[@]}" \
+            ${image_args[@]+"${image_args[@]}"} \
             >"$log" 2>&1
   then
     echo "$prog: codex exec failed (last 30 log lines):" >&2
