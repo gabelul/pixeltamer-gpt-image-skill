@@ -191,6 +191,12 @@ GPT Image 2 obeys explicit negatives. Use them when the model keeps adding thing
 What you should NOT use as negatives:
 - ~~lowres, bad anatomy, text, error~~ — these are old-model magic words; they're noise to GPT Image 2.
 
+### Negatives — what a strong list actually looks like
+
+The vague negatives above work for one-offs. For brand and commercial work, write **8–15 named failure modes**, each targeting an actual bad-default behavior gpt-image-2 keeps producing in your category. "No busy background" is a wish; "no decorative side panels, no rounded-corner cards, no thick borders, no large background graphics" is a constraint.
+
+See `prompt-patterns.md` § 3 for worked negative blocks per style (Apple-keynote, graffiti sketch, premium typography poster, brand touchpoint system).
+
 ## Prompt template (copy / adapt)
 
 ```
@@ -216,6 +222,10 @@ Constraints: [explicit negatives].
 1. **Open with intent**, not subject ("Create a pitch-deck slide…" beats "A chart and some KPIs").
 2. **Quote every character** that should appear in the image, exactly once.
 3. **Specify what to preserve** alongside what to change in every edit prompt.
+
+## When to escalate beyond this file
+
+Reach for `prompt-patterns.md` when the request hits any of: building the prompt programmatically (slot-by-slot rather than free prose), a complex image with many independent subsystems, one of the doctrine categories (UI / infographic / brand identity / e-commerce hero / architectural render / scientific atlas / conceptual typography poster), or brand consistency across many images. Patterns covered there: JSON-config schema, role-based opener, specific-negative blocks, phase-based structure, auto-deduce closure, signature integration.
 
 ## Anti-patterns to drop
 

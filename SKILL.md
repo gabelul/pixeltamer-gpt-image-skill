@@ -162,9 +162,9 @@ The `prompts.md` format is parsed by the verifier in `scripts/verify-images.mjs`
 ## Workflow — what to do when invoked
 
 1. **Understand the request.** Identify the mode (generate / edit / compose / batch). Identify the recipe (infographic / ad / poster / mockup / etc) — load it from `recipes/` if one fits.
-2. **Read references when relevant.** Load `references/prompting.md` for any non-trivial prompt. Load `references/ui-mockup-prompting.md` for UI work. Load `references/multi-reference.md` for compose mode. Don't dump every reference into context — pull only what's needed.
+2. **Read references when relevant.** Load `references/prompting.md` for any non-trivial prompt. Load `references/ui-mockup-prompting.md` for UI work. Load `references/multi-reference.md` for compose mode. Load `references/prompt-patterns.md` when you're composing the prompt programmatically, hitting one of the doctrine categories (UI / infographic / brand identity / e-commerce hero / architectural render / scientific atlas / typography poster), or need brand consistency across many images. Don't dump every reference into context — pull only what's needed.
 3. **Resolve unspecified params.** Pick a sensible size based on the use case (see the size table in `references/prompting.md`). Default `--quality high`. Pick a backend if the user didn't specify.
-4. **Build the prompt.** Apply the canonical structure: Intent → Scene → Subject → Details → Text → Style → Constraints. Drop magic words ("8K, ultra detailed, masterpiece, professional"). Quote any text that should appear in the image. Specify what to preserve on edits.
+4. **Build the prompt.** Apply the canonical structure: Intent → Scene → Subject → Details → Text → Style → Constraints. Drop magic words ("8K, ultra detailed, masterpiece, professional"). Quote any text that should appear in the image. Specify what to preserve on edits. For UI screens, infographics, brand renders, scientific atlases, or any request where you're composing the prompt programmatically, escalate to the JSON-config schema and other advanced patterns in `references/prompt-patterns.md`.
 5. **Generate.** Call the right `pixeltamer` subcommand. Print the resulting absolute path.
 6. **Visually self-verify.** Use the `Read` tool to view the generated PNG. Judge it against the prompt:
    - Does the subject match?
