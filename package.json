@@ -1,6 +1,6 @@
 {
   "name": "pixeltamer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Image generation skill for Claude Code, Codex CLI, OpenCode and other agents. Two backends (OpenAI API or Codex CLI), three modes (one-shot, batch, multi-reference), shipped with prompting doctrine and production recipes.",
   "type": "module",
   "scripts": {

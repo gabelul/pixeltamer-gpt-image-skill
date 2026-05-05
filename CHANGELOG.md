@@ -4,6 +4,10 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.0] - 2026-05-05
+
 ### Added
 
 - **Raster brand kit in `.github/assets/`** — 8 production PNGs generated through pixeltamer itself: mascot (1024×1024), social-preview-with-text and art-only (1280×640), hero-with-text and art-only (1536×640), mode-generate / mode-edit / mode-compose (1024×1024 each). README hero swapped from the SVG banner to `hero-with-text.png`; mode trio inlined as a 3-column table under "Three modes". The existing `banner.svg` and `social-preview.svg` are kept untouched as vector alternatives.
@@ -25,6 +29,20 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ### Documented (honest findings)
 
-- **Codex backend normalizes prompts before calling gpt-image-2.** Ran a controlled A/B (UI mockup + comparison infographic, prose vs JSON-schema, same content) — both pairs collapsed to byte-identical PNGs (same MD5). Codex's image_gen reasoning loop appears to summarize the prompt into an internal call before invocation, making the codex backend a poor A/B testbed for prompt-construction patterns. Documented in `prompt-patterns.md` § 1 and `gallery/README.md` § 7. The patterns' input-side value (structural completeness, agent composability, scales to large prompts) still applies; the model-output delta isn't measurable through codex.
+- **Codex backend normalizes prompts before calling gpt-image-2.** Ran a controlled A/B (UI mockup + comparison infographic, prose vs JSON-schema, same content) — both pairs collapsed to byte-identical PNGs (same MD5). Codex's image_gen reasoning loop appears to summarize the prompt into an internal call before invocation, making the codex backend a poor A/B testbed for prompt-construction patterns. Documented in `prompt-patterns.md` § 1 and `gallery/README.md` § 7. The patterns' input-side value (structural completeness, agent composability, scales to large prompts) still applies; the model-output delta isn't measurable through codex. Tracked in [#1](https://github.com/gabelul/pixeltamer-gpt-image-skill/issues/1).
 
-[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.1.0...HEAD
+## [0.1.0] - 2026-04-30
+
+### Added
+
+- Initial release.
+- Two backends with auto-detect: OpenAI API (Python, zero-dep) and Codex CLI (bash, dual invocation pattern with fallback).
+- Three modes: one-shot generation, multi-image batch with state-machine verification, multi-reference composition (up to 16 inputs via /images/edits).
+- References folder covering prompting doctrine, both backends, multi-reference composition, post-processing, UI-mockup-specific patterns.
+- Recipes for infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo.
+- SKILL.md for full-context environments and SKILL-OC.md token-optimized variant for OpenClaw.
+- Multi-image batch verifier with state-machine `prompts.md` format and a 29-test node:test suite.
+
+[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/releases/tag/v0.1.0
