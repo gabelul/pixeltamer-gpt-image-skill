@@ -20,6 +20,7 @@ Each entry has a strip like: `1024×1024 · codex · exact-typography · -i masc
 | `role-opener` | [§2 in `prompt-patterns.md`](../references/prompt-patterns.md): `(Specialty) you are a ...` |
 | `specific-negatives` | [§3 in `prompt-patterns.md`](../references/prompt-patterns.md): named-failure-mode negative list |
 | `cropped-from` | This image was post-cropped with `sips` from the listed source dimensions |
+| `codex-OAuth-edit` | This entry was edited via the Codex Responses API (POST `/backend-api/codex/responses`), bypassing the codex CLI and using ChatGPT OAuth credentials directly. No `OPENAI_API_KEY` needed. See entry #8 for the proof case. |
 
 ---
 
@@ -274,6 +275,120 @@ Constraints — do NOT include:
 - Watermarks
 - Burnt-paper or coffee-stain texture overlays
 ````
+
+</details>
+
+---
+
+## 8. AI image models comparison + codex-OAuth edit proof
+
+A two-image set proving that **codex's underlying ChatGPT OAuth path can edit existing images** (not just generate new ones), contrary to the previous "codex is generation-only" position in pixeltamer's docs. Source generated via the codex CLI like every other entry; edit performed by POSTing to `https://chatgpt.com/backend-api/codex/responses` (or the proxy from `~/.codex/config.toml`) with the source image attached as an `input_image` part and the `image_generation` tool requested. Pure stdlib Python, ~150 lines, no external dependency.
+
+**Source** — generated via `pixeltamer generate` on codex backend, JSON-schema doctrine prompt:
+
+<img src="images/ai-models-comparison.png" alt="AI image generation models comparison — light mode" width="640"/>
+
+`1536×1024 · codex · JSON-schema · role-opener · specific-negatives (15 named failure modes)`
+
+**Edit** — same source, color-only transformation via codex-OAuth (no API key):
+
+<img src="images/ai-models-comparison-darkmode.png" alt="AI image generation models comparison — dark mode edit" width="640"/>
+
+`1536×1024 · codex-OAuth-edit · zero text drift across 30+ exact values`
+
+The dark-mode result preserves every text string on the page exactly — all 5 model names (gpt-image-2, Flux 1.1 Pro, Imagen 4, Midjourney V7, Stable Diffusion 3.5), all 5 maker italics (OpenAI, Black Forest Labs, Google DeepMind, Midjourney, Stability AI), all 20 spec values (year / max res / text quality / access mode for each), all 5 best-for tag pills, the title "AI Image Generation Models — Quick Reference", the footer "pixeltamer.dev · as of May 2026". Icon styles, line weights, column dividers, spacing, and typography all unchanged. Only the four colors named in the edit prompt (background, primary text, maker labels, accent) actually changed.
+
+If the model had regenerated instead of editing, even one of those 30+ strings would have drifted (Black Forest Labs → Black Forest Lab, V7 → v7, Vertex AI → Vertex Al, etc.). None did. This is the success signal that distinguishes a real edit operation from a redraw.
+
+> **Why this matters for pixeltamer**: previous docs claimed "edit is API only" because the codex CLI's `image_gen` tool exposes only generation. The OAuth path on the same Codex Responses API supports edit + multi-reference compose with no API key required. A future pixeltamer release may wire this in as the default codex-backend edit path; see GitHub for the issue tracking that work.
+
+<details>
+<summary>Show source generation prompt (JSON-schema doctrine)</summary>
+
+````
+(Senior Editorial Information Designer) You are an information designer specialized in print-style comparison infographics. Portfolio: Pop Chart Lab, Information is Beautiful, Pentagram.
+
+Generate a high-fidelity comparison infographic poster:
+
+{
+  "type": "Comparison Infographic Poster",
+  "topic": "AI Image Generation Models — Quick Reference",
+  "audience": "Developers and designers picking a model",
+  "structure": {
+    "canvas": "1536x1024 landscape",
+    "title_zone": "top centered, ~12% of canvas height",
+    "comparison_zone": "5-column grid filling middle 75% of canvas",
+    "footer_zone": "bottom centered, ~5%, attribution and as-of date",
+    "column_count": 5,
+    "column_anatomy": "model icon (top, ~80px) + model name (large) + maker label (small italic) + 4 spec rows (label : value) + 1 best-for tag pill"
+  },
+  "style": {
+    "aesthetic": "premium tech editorial poster, Apple-keynote vibe",
+    "background": "warm off-white paper, base color #f8f6f2",
+    "primary_text": "near-black #0f0f1a",
+    "secondary_text": "muted gray #6b7280 for the maker italic labels",
+    "accent": "electric indigo #5b6cff used only on icons, column dividers, and best-for pill borders",
+    "typography": "geometric sans for the title (weight 800), condensed sans for column body (weight 500), monospace for spec values",
+    "dividers": "thin vertical hairlines between columns in indigo at 25% opacity",
+    "icons": "minimalist single-weight line-art, all five icons identical line weight and treatment"
+  },
+  "content": {
+    "title": "AI Image Generation Models — Quick Reference",
+    "footer": "pixeltamer.dev · as of May 2026",
+    "columns": [
+      { "model": "gpt-image-2", "maker": "OpenAI", "icon": "minimalist line-art of a hexagonal node with three branching connections radiating outward", "specs": { "Released": "2025", "Max Res": "4K", "Text": "Excellent", "Access": "API + Codex" }, "best_for": "Structured infographics, exact text" },
+      { "model": "Flux 1.1 Pro", "maker": "Black Forest Labs", "icon": "minimalist line-art of three abstract horizontal flowing waves", "specs": { "Released": "2024", "Max Res": "2K", "Text": "Good", "Access": "API" }, "best_for": "Photorealism, fine detail" },
+      { "model": "Imagen 4", "maker": "Google DeepMind", "icon": "minimalist line-art of a circle with a smaller orbiting dot at upper right", "specs": { "Released": "2025", "Max Res": "2K", "Text": "Good", "Access": "Vertex AI" }, "best_for": "Natural scenes, photo quality" },
+      { "model": "Midjourney V7", "maker": "Midjourney", "icon": "minimalist line-art of a small sailboat silhouette", "specs": { "Released": "2025", "Max Res": "2K", "Text": "Limited", "Access": "Discord + Web" }, "best_for": "Stylized art, painterly look" },
+      { "model": "Stable Diffusion 3.5", "maker": "Stability AI", "icon": "minimalist line-art of a downward triangle inside a circle", "specs": { "Released": "2024", "Max Res": "2K", "Text": "Limited", "Access": "Local + API" }, "best_for": "Open-source, custom fine-tuning" }
+    ]
+  },
+  "constraints": "Render every text string exactly as written; no paraphrasing of model names, maker names, version numbers, year values, resolutions, or best-for tags."
+}
+
+Constraints — do NOT include: lorem ipsum or placeholder text; realistic photography of computers, screens, or hardware; floating particles, sparkles, or droplets; 3D drop shadows, glossy gradients, beveled edges; stock-photo elements; real company logos or trademarked symbols; inconsistent icon styles between columns; recipes or instructions; decorative borders or rounded boxes around columns; a 6th column beyond the five listed; different accent colors per column; a subtitle beyond the title and footer; watermarks; texture overlays; generic praise words like "amazing", "powerful", "best", "stunning" anywhere.
+````
+
+</details>
+
+<details>
+<summary>Show edit prompt (codex-OAuth, color-only transformation)</summary>
+
+```
+Edit this AI image-generation models infographic. Change ONLY the colors:
+- Background: warm off-white (#f8f6f2) → deep navy blue (#0a1628)
+- Primary text (near-black) → off-white (#e5e5e5) so it stays readable on the navy
+- Maker italic labels (muted gray) → slightly brighter gray (#9ca3af) for dark-mode readability
+- Electric indigo accent on icons, dividers, and best-for pill borders → slightly brighter electric indigo (#818cf8) for dark-mode contrast
+
+Keep EVERY text string identical to the source:
+- Title: "AI Image Generation Models — Quick Reference"
+- All 5 model names: "gpt-image-2", "Flux 1.1 Pro", "Imagen 4", "Midjourney V7", "Stable Diffusion 3.5"
+- All 5 makers: "OpenAI", "Black Forest Labs", "Google DeepMind", "Midjourney", "Stability AI"
+- All Released values: "2025", "2024", "2025", "2025", "2024"
+- All Max Res values: "4K", "2K", "2K", "2K", "2K"
+- All Text values: "Excellent", "Good", "Good", "Limited", "Limited"
+- All Access values: "API + Codex", "API", "Vertex AI", "Discord + Web", "Local + API"
+- All 5 best-for pills: "Structured infographics, exact text", "Photorealism, fine detail", "Natural scenes, photo quality", "Stylized art, painterly look", "Open-source, custom fine-tuning"
+- Footer: "pixeltamer.dev · as of May 2026"
+
+Keep all 5 icons in their current positions and styles (minimalist line-art).
+Keep the 5-column layout, the column dividers, the spacing, and the typography exactly.
+
+Do NOT redraw anything except the colors named above. Do NOT change any text. Do NOT add or remove any element. Do NOT swap icon styles. This is a color edit, not a regeneration.
+```
+
+</details>
+
+<details>
+<summary>Wire-protocol notes (for whoever wants to reproduce or build on this)</summary>
+
+- **Endpoint**: `POST <chatgpt-base>/backend-api/codex/responses` where `<chatgpt-base>` resolves from `~/.codex/config.toml` — top-level `model_provider` → `[model_providers.<name>].base_url`. Falls back to `https://chatgpt.com/backend-api/codex` if no override. Honoring this is critical for users with a local proxy / load balancer (e.g. `[model_providers.codex-lb]` pointing at `127.0.0.1:2455`).
+- **Auth**: `Authorization: Bearer <access_token>` from `~/.codex/auth.json` (`tokens.access_token`); `ChatGPT-Account-ID: <account_id>` from the same file (`tokens.account_id`); optional `x-codex-installation-id` from `~/.codex/installation_id` in the body's `client_metadata`. Proxy users get token refresh handled by the proxy; direct-upstream users currently fail with `token_expired` if their `access_token` is stale and need to run `codex login` again (or the implementation needs to add a refresh path using the `refresh_token`).
+- **Body**: `model: "gpt-5.4"`, `tools: [{ "type": "image_generation", "output_format": "png", "size": "1536x1024" }]`, `tool_choice: "auto"`, `stream: true`. The user message's `content` array carries the prompt text plus one or more `{"type": "input_image", "image_url": "data:image/png;base64,<b64>"}` entries.
+- **Response**: Server-Sent Events stream. Final image arrives as base64 PNG in either `response.output_item.done` events where `item.type === "image_generation_call"` and `item.result` is non-empty, or earlier in `response.image_generation_call.partial_image` events.
+- **Multi-reference compose** would attach multiple `input_image` parts and use prompt language like "PRIMARY SOURCE is image 1; image 2 is style reference". Hermes-editing's [`tools/image_edit_tool.py`](https://github.com/haitei155/hermes-gpt-image-2-editing/blob/main/tools/image_edit_tool.py) is the reference implementation for that pattern.
+- **Mask-based inpainting is NOT supported on this path** — the Responses API doesn't take a mask parameter. That stays API-only.
 
 </details>
 
