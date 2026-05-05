@@ -2,6 +2,21 @@
 
 All notable changes to pixeltamer get logged here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.0 (2026-05-05)
+
+
+### Features
+
+* **assets:** add raster brand kit (mascot, hero, social, mode trio) ([1ebdd04](https://github.com/gabelul/pixeltamer-gpt-image-skill/commit/1ebdd044243a310ed3cc52c77242e774df96595b))
+* initial release ([61bbe04](https://github.com/gabelul/pixeltamer-gpt-image-skill/commit/61bbe0406c2aa921de79ceb8a8c91b8ce7d65ec4))
+
+
+### Bug Fixes
+
+* **codex:** detect login via stderr and add -i/--image references ([e624357](https://github.com/gabelul/pixeltamer-gpt-image-skill/commit/e624357b63f265f500c80f16f850011611023a5a))
+* **codex:** expand image_args safely under set -u on bash 3.2 ([e56acb7](https://github.com/gabelul/pixeltamer-gpt-image-skill/commit/e56acb7b832df65cb675943edfaab1773a92caf0))
+* read codex login status from stderr in detection check ([28939a8](https://github.com/gabelul/pixeltamer-gpt-image-skill/commit/28939a88a17b8312cd3e2c46220028f69837071a))
+
 ## [Unreleased]
 
 ### Added
