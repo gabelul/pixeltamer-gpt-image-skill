@@ -11,7 +11,7 @@ Use this backend when you'd rather pay your existing ChatGPT Plus/Team/Enterpris
 
 ## When NOT to use
 
-- You need `edit` or `compose` modes — codex's built-in `image_gen` tool is generation-only.
+- You need `edit` or `compose` modes **in this release of pixeltamer** — the codex CLI's built-in `image_gen` tool (what `codex exec` exposes) is generation-only, so pixeltamer's codex backend currently routes edits/compose through the API. Note that codex's underlying ChatGPT Responses API actually *does* support edit + multi-reference compose without an API key (proven in [gallery #8](../gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof) with zero text drift on a dense infographic); pixeltamer just hasn't wired that transport in yet. Mask-based inpainting will stay API-only regardless — the Responses API doesn't take a mask parameter.
 - You need batch generation under tight wall-clock — codex is noticeably slower than the API.
 - You're running automation that might trip ChatGPT consumer-tier rate limits.
 - You can't install Node / npm to get codex.

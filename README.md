@@ -73,7 +73,7 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 1. **Detect mode** — pixeltamer reads the request and picks one of: `generate` (text → image), `edit` (modify or inpaint a single source), `compose` (blend 2–16 reference images into one), `batch` (state-machine workflow for multiple related images with verification).
 2. **Pick a backend** — auto-detects API key first, falls back to codex CLI. Override per call with `--backend`.
 3. **Build the prompt** — applies the canonical structure (Intent → Scene → Subject → Details → Text → Style → Constraints), drops magic words, quotes any text that should appear in the image.
-4. **Call the right transport** — Python urllib → `/images/generations` or `/images/edits` for the API path; bash → `codex exec` with the built-in `image_gen` tool for the codex path.
+4. **Call the right transport** — Python urllib → `/images/generations` or `/images/edits` for the API path; bash → `codex exec` with the built-in `image_gen` tool for the codex path. (Codex's underlying ChatGPT Responses API can also do edit + compose without an API key — [gallery #8](gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof) proves it; the codex backend will wire this in as a third transport in the next release.)
 5. **Verify visually** — every generated PNG gets `Read`-loaded back and checked against the prompt before claiming success. Image gen is stochastic; "API succeeded" ≠ "image is correct."
 6. **Surface or iterate** — print the absolute path on success, or change one prompt dimension and regenerate on failure.
 
@@ -85,7 +85,9 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 |---|---|
 | Fastest single image | `--backend api` |
 | Don't have / don't want an API key | `--backend codex` (uses ChatGPT subscription) |
-| Edit / inpaint / mask | `--backend api` (codex's image_gen is generation-only) |
+| Edit (no mask) | `--backend api` for now — codex's underlying Responses API can also edit (proven in [gallery #8](gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof)), pixeltamer wires that in next release |
+| Multi-reference compose | `--backend api` for now — same story as edit; codex-OAuth can do it, pixeltamer hasn't wired it yet |
+| Mask-based inpainting | `--backend api` only — the codex Responses API doesn't take a mask parameter, this stays API-side |
 | Compose 2–16 references into one | `--backend api` |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
 | Run on a teammate's machine without sharing creds | `--backend codex` (each user signs in separately) |
@@ -122,10 +124,12 @@ pixeltamer generate -p "..." --size 1536x1024 --quality high -o slide.png
 # 4 variants in parallel (API only — fires 4 concurrent calls)
 pixeltamer generate -p "..." -n 4 --concurrency 4 -o variants/
 
-# edit / inpaint a single image (API only)
+# edit / inpaint a single image
+# (API path today; codex-OAuth path proven in gallery/README.md #8, ships next release)
 pixeltamer edit -i source.png -p "Change ONLY the sky to overcast. Preserve everything else exactly." -o edited.png
 
-# compose 2–16 references blended into one (API only)
+# compose 2–16 references blended into one
+# (same story as edit — API today, codex-OAuth proven, wiring in progress)
 pixeltamer compose -i product.png -i kitchen.png -p "Place product on counter, morning window light from left." -o composed.png
 
 # multi-image batch with state-machine verification
