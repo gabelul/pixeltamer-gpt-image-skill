@@ -1,0 +1,74 @@
+(Senior Editorial Information Designer) You are an information designer specialized in print-style comparison infographics. Portfolio reference: Pop Chart Lab, Information is Beautiful, Pentagram.
+
+Generate a high-fidelity comparison infographic poster using the following spec:
+
+{
+  "type": "Comparison Infographic Poster",
+  "topic": "Coffee Brewing Methods Compared",
+  "audience": "Coffee enthusiasts at a specialty cafe",
+  "structure": {
+    "canvas": "1536x1024 landscape",
+    "title_zone": "top centered, approximately 12% of canvas height",
+    "comparison_zone": "4-column grid filling the middle 70% of canvas height",
+    "footer_zone": "bottom centered, approximately 6% of canvas height, attribution only",
+    "column_count": 4,
+    "column_anatomy": "method icon at top, then method name, then 3 spec rows (label : value), then 2 taste-note tags"
+  },
+  "style": {
+    "aesthetic": "specialty coffee-shop poster, editorial print",
+    "background": "warm cream paper texture, base color #f5efe6",
+    "primary_text": "dark espresso brown #2a1a10",
+    "accent": "warm copper #b87333, used only on icons and column dividers",
+    "typography": "serif display face for the title, condensed sans-serif for the column body, monospace for the spec values",
+    "dividers": "thin vertical hairlines between columns in copper at low opacity",
+    "icons": "minimalist single-weight line art, all four icons identical line weight and treatment"
+  },
+  "content": {
+    "title": "Coffee Brewing Methods Compared",
+    "footer": "pixeltamer.dev",
+    "columns": [
+      {
+        "method": "French Press",
+        "icon": "minimalist line-art of a French press cylinder with plunger",
+        "specs": { "Grind": "Coarse", "Water": "95°C", "Time": "4 min" },
+        "tastes": ["Full-bodied", "Sediment-rich"]
+      },
+      {
+        "method": "Pour Over (V60)",
+        "icon": "minimalist line-art of a V60 cone dripper on a carafe",
+        "specs": { "Grind": "Medium-Fine", "Water": "92°C", "Time": "3 min" },
+        "tastes": ["Clean", "Bright"]
+      },
+      {
+        "method": "AeroPress",
+        "icon": "minimalist line-art of an AeroPress with plunger inserted",
+        "specs": { "Grind": "Fine", "Water": "80°C", "Time": "1.5 min" },
+        "tastes": ["Smooth", "Low-acid"]
+      },
+      {
+        "method": "Espresso",
+        "icon": "minimalist line-art of an espresso portafilter handle and basket",
+        "specs": { "Grind": "Very Fine", "Water": "93°C", "Time": "25 sec" },
+        "tastes": ["Intense", "Creamy"]
+      }
+    ]
+  },
+  "constraints": "Render every text string exactly as written, no paraphrasing of method names, units, or taste notes. Every number and unit must appear exactly as quoted."
+}
+
+Constraints — do NOT include:
+- Lorem ipsum or placeholder text
+- Realistic photography of cups, beans, or coffee equipment (icons must be flat line-art only)
+- Floating coffee beans, splashes, or decorative droplets
+- 3D drop shadows, glossy gradients, or beveled edges
+- Stock-photo coffee cups or barista hands
+- Steam wisps, latte art, or other decorative atmospheric elements
+- Mismatched icon styles between columns (all four icons must share identical line weight and treatment)
+- Fake brand logos (no Hario, no Bialetti, no Aeropress logo etc.)
+- Recipes, brewing instructions, or text blocks beyond the labeled cells
+- Decorative borders, frames, or rounded boxes around columns
+- A 5th or 6th method column beyond the four listed
+- Different accent colors per column (the only accent is copper, used uniformly)
+- A subtitle or sub-header beyond the title and footer
+- Watermarks
+- Burnt-paper or coffee-stain texture overlays

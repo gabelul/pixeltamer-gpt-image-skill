@@ -4,7 +4,13 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **`tests/ab/` — A/B test harness for prompt-construction patterns.** Lets us validate (or falsify) the `references/prompt-patterns.md` doctrine claim that JSON-schema / role-opener / specific-negatives produce better images than equivalent prose. The harness lives in three files:
+  - `tests/ab/README.md` — methodology, scoring rubric (typography fidelity / layout coherence / plausibility), decision rule for shipping vs softening the doctrine
+  - `tests/ab/run-ab.sh` — bash runner; takes two prompt files + an output dir, fires both via `pixeltamer generate` at matched size/quality, prints MD5s, exits with code 3 if outputs are byte-identical (the codex-normalization signature, makes the test invalid silently otherwise)
+  - `tests/ab/fixtures/` — example prompt pairs ready to A/B; ships with `coffee-infographic-prose.txt` + `coffee-infographic-json.txt` covering the same content via two different construction patterns
+  - Defaults to `--backend api` because the codex backend normalizes prompts internally before calling gpt-image-2 (we proved that during 0.2.0 — same MD5 across two test categories), so prompt-construction patterns can only be measured on the API path. Partially closes [#1](https://github.com/gabelul/pixeltamer-gpt-image-skill/issues/1) — the actual data run still needs an OpenAI API key, which we don't have committed to this repo for cost reasons.
 
 ## [0.3.0] - 2026-05-06
 

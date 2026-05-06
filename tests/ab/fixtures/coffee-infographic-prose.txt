@@ -1,0 +1,12 @@
+Create a comparison infographic about coffee brewing methods. Compare French Press, Pour Over V60, AeroPress, and Espresso. For each method show grind size, water temperature in Celsius, brew time in minutes or seconds, and two characteristic taste notes. Layout: 4-column grid. Title at the top centered: 'Coffee Brewing Methods Compared'. Footer attribution centered at the bottom: 'pixeltamer.dev'.
+
+Style: specialty coffee-shop editorial poster, warm cream paper background, dark espresso brown text, single accent color of warm copper used only for icons and thin column dividers, serif typography for the title and condensed sans-serif for the body. Minimalist line-art icons at the top of each column, all four icons in the same line weight.
+
+Render every value exactly as quoted below.
+
+French Press: grind 'Coarse', water '95°C', time '4 min', taste 'Full-bodied' and 'Sediment-rich'.
+Pour Over V60: grind 'Medium-Fine', water '92°C', time '3 min', taste 'Clean' and 'Bright'.
+AeroPress: grind 'Fine', water '80°C', time '1.5 min', taste 'Smooth' and 'Low-acid'.
+Espresso: grind 'Very Fine', water '93°C', time '25 sec', taste 'Intense' and 'Creamy'.
+
+Constraints: no lorem ipsum, no placeholder text, no realistic photography, no stock-photo coffee cups, no steam wisps or latte art, no decorative coffee beans, no 3D drop shadows. Every text string must render exactly as written above.
