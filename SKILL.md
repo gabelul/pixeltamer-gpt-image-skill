@@ -119,7 +119,7 @@ For exploration, fire 4 in parallel:
 pixeltamer generate -p "..." -n 4 --concurrency 4 -o variants/
 ```
 
-### Mode 2 — Edit / inpaint (API only in this release)
+### Mode 2 — Edit / inpaint
 
 ```bash
 # Modify a single existing image
@@ -129,9 +129,9 @@ pixeltamer edit -i source.png -p "Change ONLY the sky to overcast. Preserve ever
 pixeltamer edit -i source.png --mask mask.png -p "..." -o edited.png
 ```
 
-The codex CLI's `image_gen` tool (what `codex exec` exposes) is generation-only. The codex *Responses API* — same OAuth credentials, different transport — actually CAN edit and compose, proven in [gallery #8](gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof) with byte-perfect text fidelity on a 30+ exact-value infographic. Pixeltamer's codex backend hasn't wired that path in yet — until it does, edits still need the API. If the user wants an edit and only codex is available, tell them: (a) they need an API key for now, OR (b) they can study `scratch/codex-oauth-edit-test.py` as a one-shot Python proof script if they're comfortable doing it manually.
+Edit works on both backends. The API path uses `/v1/images/edits` (supports `--mask` for region-based inpainting). The codex path uses the OAuth Responses API directly (`scripts/pixeltamer_codex_oauth.py`) — same ChatGPT credentials as `codex exec`, different transport, no API key required. Codex-OAuth doesn't support `--mask`; if the user needs mask-based inpainting they need the API path.
 
-### Mode 3 — Multi-reference composition (API only in this release)
+### Mode 3 — Multi-reference composition
 
 Pass 2–16 reference images to be blended into a single output via `/images/edits`:
 
@@ -224,7 +224,7 @@ Pull only what's needed for the current job. Don't dump them all.
 | "8K, ultra detailed, masterpiece, trending on artstation" | Old-model magic words. gpt-image-2 ignores them or worse. |
 | "professional, beautiful, premium, stunning" | Praise language with zero instructional content. |
 | Generating before checking which backend is available | Run `pixeltamer doctor` first if it's the first call this session. |
-| Multi-image input on the codex backend (in this release) | The codex CLI's `image_gen` tool is generation-only, so pixeltamer routes edits/compose through the API today. The codex Responses API can do edit + compose; gallery #8 proves it; the codex backend will wire that in next release. |
+| Edit / compose on codex backend | Works since 0.3.0 via the OAuth Responses API (`pixeltamer_codex_oauth.py`). Mask-based inpainting still requires the API path — the Responses API doesn't take a mask parameter. |
 | Skipping visual self-verification | Image gen is stochastic. "API succeeded" ≠ "image is correct". |
 | Stacking three new clauses when one isn't working | Change one dimension at a time. You won't know what helped otherwise. |
 | Running examples folder PNGs as ground truth | They're demonstrations, not specs. Composition will vary on regen. |
@@ -235,9 +235,9 @@ Pull only what's needed for the current job. Don't dump them all.
 |---|---|
 | Fastest single image | API |
 | Don't have / don't want an API key | codex |
-| Edit an existing image (no mask) | API only **in this release**; codex Responses API can also edit (gallery #8), wiring in progress |
-| Mask-based inpainting | API only — Responses API doesn't take a mask, this stays API-side |
-| Compose 2–16 references into one | API only **in this release**; codex Responses API can also compose (same path as edit), wiring in progress |
+| Edit an existing image (no mask) | Either backend — API or codex-OAuth |
+| Mask-based inpainting | API only — Responses API doesn't take a mask parameter |
+| Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
 | Largest sizes (4K) at high quality | API; codex's reasoning loop gets slow for large outputs |

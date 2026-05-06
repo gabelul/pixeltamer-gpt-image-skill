@@ -118,19 +118,35 @@ cmd_generate() {
 cmd_edit() {
   local backend
   backend="$(_detect_backend)"
-  if [[ "$backend" != "api" ]]; then
-    _die "\`edit\` requires the API backend (codex CLI's image_gen tool doesn't support edits). Set OPENAI_API_KEY or pass --backend api."
-  fi
-  exec python3 "$script_dir/pixeltamer_api.py" edit "$@"
+  case "$backend" in
+    api)
+      exec python3 "$script_dir/pixeltamer_api.py" edit "$@"
+      ;;
+    codex)
+      # Codex Responses API can edit, but it doesn't take a mask. If --mask
+      # was passed, route through API instead with a clear-but-quiet handoff.
+      local has_mask=0
+      for arg in "$@"; do
+        if [[ "$arg" == "--mask" || "$arg" == --mask=* ]]; then
+          has_mask=1
+          break
+        fi
+      done
+      if (( has_mask == 1 )); then
+        _die "\`edit --mask\` requires the API backend (codex Responses API doesn't take a mask parameter). Set OPENAI_API_KEY or pass --backend api."
+      fi
+      exec python3 "$script_dir/pixeltamer_codex_oauth.py" edit "$@"
+      ;;
+  esac
 }
 
 cmd_compose() {
   local backend
   backend="$(_detect_backend)"
-  if [[ "$backend" != "api" ]]; then
-    _die "\`compose\` requires the API backend. Set OPENAI_API_KEY or pass --backend api."
-  fi
-  exec python3 "$script_dir/pixeltamer_api.py" compose "$@"
+  case "$backend" in
+    api)   exec python3 "$script_dir/pixeltamer_api.py" compose "$@" ;;
+    codex) exec python3 "$script_dir/pixeltamer_codex_oauth.py" compose "$@" ;;
+  esac
 }
 
 cmd_batch() {
@@ -212,8 +228,8 @@ usage:
 
 subcommands:
   generate (default)   text -> image
-  edit                 modify or inpaint a single image (API only)
-  compose              blend 2-16 reference images into one (API only)
+  edit                 modify a single image (mask requires API; OAuth path otherwise)
+  compose              blend 2-16 reference images into one (API or codex-OAuth)
   batch                plan + generate multiple images with verification
   config               interactive setup
   doctor               diagnose install

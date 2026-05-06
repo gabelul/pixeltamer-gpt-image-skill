@@ -300,7 +300,7 @@ The dark-mode result preserves every text string on the page exactly — all 5 m
 
 If the model had regenerated instead of editing, even one of those 30+ strings would have drifted (Black Forest Labs → Black Forest Lab, V7 → v7, Vertex AI → Vertex Al, etc.). None did. This is the success signal that distinguishes a real edit operation from a redraw.
 
-> **Why this matters for pixeltamer**: previous docs claimed "edit is API only" because the codex CLI's `image_gen` tool exposes only generation. The OAuth path on the same Codex Responses API supports edit + multi-reference compose with no API key required. A future pixeltamer release may wire this in as the default codex-backend edit path; see GitHub for the issue tracking that work.
+> **Why this matters for pixeltamer**: previous docs claimed "edit is API only" because the codex CLI's `image_gen` tool exposes only generation. The OAuth path on the same Codex Responses API supports edit + multi-reference compose with no API key required. **Wired into pixeltamer's codex backend as of 0.3.0** — `pixeltamer edit` and `pixeltamer compose` now work on the codex backend via `scripts/pixeltamer_codex_oauth.py`. Mask-based inpainting still requires the API backend (Responses API doesn't take a mask parameter).
 
 <details>
 <summary>Show source generation prompt (JSON-schema doctrine)</summary>
