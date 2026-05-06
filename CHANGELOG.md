@@ -4,17 +4,24 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] - 2026-05-06
+
 ### Added
 
-- **`gallery/` entry #8** — codex-OAuth edit proof. Two-image set (AI image-generation models comparison source + dark-mode color edit) demonstrating that codex's underlying ChatGPT Responses API edits images with byte-perfect text fidelity (zero drift across 30+ exact text values: model names, makers, year integers, max-resolution strings, access modes, best-for tag pills, title, footer). Includes both prompts and the wire-protocol notes for whoever wants to reproduce. The proof script itself lives in `scratch/` (gitignored) — it's a one-shot Python file, not a shipped feature yet.
+- **`scripts/pixeltamer_codex_oauth.py`** (~430 lines, stdlib-only Python) — codex-OAuth backend for `edit` and `compose` modes. POSTs directly to the Codex Responses API (`<chatgpt-base>/backend-api/codex/responses`) using ChatGPT OAuth credentials from `~/.codex/auth.json` instead of going through the `codex exec` CLI surface (which only exposes generation). Resolves the base URL from `~/.codex/config.toml` the way `codex exec` does, so users with local proxies / load balancers (e.g. `[model_providers.codex-lb]` pointing at 127.0.0.1) keep working. Supports `generate`, `edit`, and `compose` subcommands with the same flag surface as `pixeltamer_api.py`: `-p`, `-o`, `-i` (repeatable), `--size`, `--quality`, `--debug`. Token refresh is NOT implemented — proxy users get refresh from their proxy; direct-upstream users hit `token_expired` after ~1h and need to run `codex login` again (the error message says so). Closes [#2](https://github.com/gabelul/pixeltamer-gpt-image-skill/issues/2).
+- **Dispatcher routing for codex-backend `edit` + `compose`** (`scripts/pixeltamer`) — `cmd_edit` and `cmd_compose` now route through the new `pixeltamer_codex_oauth.py` module when backend resolves to codex, instead of failing with "API only." `--mask` is detected in `cmd_edit` and still requires the API backend (the codex Responses API doesn't take a mask parameter). All other `edit` and `compose` calls work with no API key required.
+- **`gallery/` entry #8** — codex-OAuth edit proof. Two-image set (AI image-generation models comparison source + dark-mode color edit) demonstrating byte-perfect text fidelity (zero drift across 30+ exact text values: model names, makers, year integers, max-resolution strings, access modes, best-for tag pills, title, footer). Both prompts inline plus wire-protocol notes for whoever wants to reproduce or build on the pattern.
 
 ### Changed
 
-- **README.md / SKILL.md / `references/codex-backend.md`** — stopped claiming "edit and compose are impossible on codex." That claim was wrong: the codex CLI's `image_gen` tool (what `codex exec` exposes) is generation-only, but codex's underlying ChatGPT Responses API does support edit + multi-reference compose without an API key (see gallery #8 for proof). Updated 9 spots so the language is "API only **in this release of pixeltamer**" with forward pointers to gallery #8 and a note that the codex-OAuth path is being wired in for the next release. Mask-based inpainting stays flagged as API-only permanently — the Responses API doesn't take a mask parameter.
+- **`README.md` / `SKILL.md` / `references/codex-backend.md` / `gallery/README.md`** — capability matrix and prose updated to reflect codex-OAuth edit + compose now shipping. Backend cheat sheet rows for "Edit (no mask)" and "Compose 2–16 references" both say "either backend." Mask-based inpainting remains the only mode flagged as API-only — the Responses API doesn't take a mask parameter, so that constraint is structural, not a wiring gap.
+- **`scripts/pixeltamer` usage text** — subcommand descriptions updated: `edit` and `compose` no longer say "(API only)."
 
-### Tracked for next release
+### Documented (honest carry-over)
 
-- **Wire codex-OAuth edit + compose into pixeltamer's codex backend** — promote the `scratch/codex-oauth-edit-test.py` proof script into a proper `scripts/pixeltamer_codex_oauth.py` module exposing `generate`, `edit`, and `compose` subcommands. Wire the dispatcher so codex-backend `edit` and `compose` route to it instead of failing with "API only." Honor `~/.codex/config.toml` model-provider resolution so users with local proxies / load balancers (e.g. `[model_providers.codex-lb]`) don't get bypassed. Tracked on GitHub.
+- The codex-OAuth path inherits the codex Responses API's known instability — see liyoungc/hermes-plugin-gpt-image's three-stage prompt fallback for context. Pixeltamer's implementation does not yet do prompt-fallback handling; if a generation fails silently, raw SSE is saved next to the output path with a `.debug-response.txt` suffix for diagnosis.
 
 ## [0.2.0] - 2026-05-05
 
@@ -53,6 +60,7 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 - SKILL.md for full-context environments and SKILL-OC.md token-optimized variant for OpenClaw.
 - Multi-image batch verifier with state-machine `prompts.md` format and a 29-test node:test suite.
 
-[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/releases/tag/v0.1.0
