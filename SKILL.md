@@ -161,8 +161,9 @@ The `prompts.md` format is parsed by the verifier in `scripts/verify-images.mjs`
 
 ## Workflow — what to do when invoked
 
-1. **Understand the request.** Identify the mode (generate / edit / compose / batch). Identify the recipe (infographic / ad / poster / mockup / etc) — load it from `recipes/` if one fits.
-2. **Read references when relevant.** Load `references/prompting.md` for any non-trivial prompt. Load `references/ui-mockup-prompting.md` for UI work. Load `references/multi-reference.md` for compose mode. Load `references/prompt-patterns.md` when you're composing the prompt programmatically, hitting one of the doctrine categories (UI / infographic / brand identity / e-commerce hero / architectural render / scientific atlas / typography poster), or need brand consistency across many images. Don't dump every reference into context — pull only what's needed.
+0. **Read `references/index.md` first.** Find the closest match for the request in the routing map. Load the smallest useful slice — one recipe or one playbook file or one reference, not all of them. Never write a prompt from scratch when a similar pattern exists in our recipes or playbooks. If no match, fall back to `references/prompting.md` plus the closest recipe.
+1. **Understand the request.** Identify the mode (generate / edit / compose / batch). Confirm the recipe / playbook / reference loaded in Step 0 actually fits — if not, route again.
+2. **Read references when relevant.** Beyond the file `index.md` pointed you to: load `references/prompting.md` for any non-trivial prompt. Load `references/multi-reference.md` for compose mode. Load `references/prompt-patterns.md` when you're composing the prompt programmatically, hitting one of the doctrine categories (UI / infographic / brand identity / e-commerce hero / architectural render / scientific atlas / typography poster), or need brand consistency across many images. Don't dump every reference into context — pull only what's needed.
 3. **Resolve unspecified params.** Pick a sensible size based on the use case (see the size table in `references/prompting.md`). Default `--quality high`. Pick a backend if the user didn't specify.
 4. **Build the prompt.** Apply the canonical structure: Intent → Scene → Subject → Details → Text → Style → Constraints. Drop magic words ("8K, ultra detailed, masterpiece, professional"). Quote any text that should appear in the image. Specify what to preserve on edits. For UI screens, infographics, brand renders, scientific atlases, or any request where you're composing the prompt programmatically, escalate to the JSON-config schema and other advanced patterns in `references/prompt-patterns.md`.
 5. **Generate.** Call the right `pixeltamer` subcommand. Print the resulting absolute path.
@@ -202,9 +203,11 @@ After a self-verified failure:
 
 ## Recipes available
 
-`recipes/infographic.md` · `recipes/meta-ad.md` · `recipes/viral-linkedin.md` · `recipes/ui-mockup.md` · `recipes/editorial-cover.md` · `recipes/product-photo.md`
+`recipes/infographic.md` · `recipes/meta-ad.md` · `recipes/viral-linkedin.md` · `recipes/ui-mockup.md` · `recipes/editorial-cover.md` · `recipes/product-photo.md` · `recipes/mascot.md`
 
 Load the matching one when its trigger fits. They contain prompt skeletons, worked examples, sizing defaults, and common-failure tables.
+
+**Mascot / brand character / app icon character requests — always load `recipes/mascot.md` BEFORE writing the prompt.** The model's default for "cute character" is a generic Slack-blob; the recipe codifies the context-to-anchor decision tree, the silhouette/scale rules, and the explicit anti-patterns to suppress. Skipping it is the single most common cause of bland mascot results.
 
 ## References available
 

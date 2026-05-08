@@ -168,6 +168,79 @@ For posters and slides, **always** state where the negative space goes ("copy ar
 
 Pick a single light direction with a single color temperature. Two light sources = okay, three = mush.
 
+## JSON vs prose — when each wins
+
+A common question because the freestylefly / EvoLink galleries are full of JSON-style prompts. The honest answer (cross-referenced from OpenAI's cookbook, fal.ai's guide, and the skill's own controlled A/B test):
+
+**JSON does NOT beat well-structured prose for the same content.** OpenAI's cookbook explicitly says "minimal prompts, descriptive paragraphs, JSON-like structures, instruction-style prompts all work, as long as the intent and constraints are clear." The dev.to JSON-advocacy article that gets cited everywhere provides zero side-by-side comparisons.
+
+The skill's own A/B test (documented in `prompt-patterns.md` § 1) found: **on the codex backend, structurally different prompts with the same content produced byte-identical PNGs.** Codex's reasoning loop normalizes the prompt before calling gpt-image-2, so JSON's structural advantages collapse on that path. On the API backend the structural value still applies — but only as a *human/agent* organization tool, not because the model "prefers" JSON.
+
+**Decision rule:**
+
+| Use JSON when | Use prose when |
+|---|---|
+| 6+ visual subsystems (luxury product photo, brand identity system, complex scene reference board) | Single-image creative work (mascot, illustration, photo, poster) |
+| Batch generation with templated slot-filling | One-off generation |
+| Agent composing prompts programmatically | Human writing creatively |
+| Brand consistency across many touchpoints | Personality + gesture flow narratively |
+
+For mascots, characters, and most one-off creative work: **stick with structured prose** (labeled sections, exact quoted text, hex colors). For commercial spec systems and multi-touchpoint brand work: escalate to `prompt-patterns.md` § 1 for the JSON schema.
+
+The legacy magic words ("8K UHD", "ultra-detailed", "极致锐度") that appear in many viral JSON prompts in the repos are noise either way — JSON doesn't fix bad content.
+
+## Front-load the first 50 words (gpt-image-2-specific)
+
+Per OpenAI's official cookbook and fal.ai's prompting guide, gpt-image-2 weights the first ~50 words of a prompt disproportionately. The model treats whatever comes first as the anchor and everything else as secondary detail. This means:
+
+- **Lead with the SUBJECT description**, not meta-framing like "this is a mascot for an iOS app."
+- **Don't open with intent labels** ("INTENT: Brand mascot…"). Open with a 2–3 sentence concrete description of what's in the image.
+- **Atmosphere, mood, and style anchors come AFTER subject**, not before. The model needs to know *what* before *how*.
+- **Use case** (ad / mockup / cover / icon) belongs near the start but as one phrase, not a full block. Example: *"App icon mascot. A small designed [character description]…"*
+
+This applies to every prompt the skill produces, not just mascots. If your prompt opens with three lines of meta-framing before the subject appears, rewrite it.
+
+## Replace praise language with observable spec language
+
+Per OpenAI's cookbook: words like *cute, charming, beautiful, premium, stunning, professional, iconic* are praise without observable content. They tell the model nothing concrete and pull outputs toward generic-stock-image defaults. Replace with phrases that name a *testable* visual property.
+
+| Don't say | Say instead |
+|---|---|
+| "cute character" | "kind expression, gentle eyes" |
+| "charming mascot" | "brave but warm demeanor, head tilted 5° camera-left" |
+| "beautiful design" | "[material]: brushed paper, flat folds, two-tone shading" |
+| "stunning poster" | "asymmetric type block, generous negative space, single accent color" |
+| "professional look" | "Inter Bold typography, 8px grid, single accent #1F6B6B" |
+| "playful and fun" | "head tilt, weight on one leg, gaze meeting viewer" |
+| "premium quality" | "two shading tones per surface, no gradients, crisp edges" |
+| "iconic" | "recognizable in solid black silhouette at 64×64px" |
+| "high-end commercial" | "shot on Hasselblad medium format, soft north-window light, neutral white balance" |
+
+The test: if you can't write a unit test for the adjective ("contains exactly two shading tones"), it's praise — replace it.
+
+## Picking the right anchor for your context
+
+Style vocabulary above tells you *what to write*. This section tells you *what to reach for*. The same word — "premium," "flat," "playful" — pulls toward different aesthetics depending on context. A wrong-context anchor produces a technically-correct but useless image (e.g., a 3D vinyl figure when you needed a flat app icon mascot).
+
+| Where the image will live | Reach for | Avoid |
+|---|---|---|
+| Mobile app icon / mascot | Flat geometric vector — Reddit Snoo, Duolingo Duo, MetaMask origami fox, GitHub Octocat, Things 3 | 3D vinyl, designer toy, photoreal |
+| SaaS marketing site illustration | Flat editorial — Linear's character set, Notion brand illos, Stripe brand illustrations | chibi, anime, over-cute |
+| Premium B2B / fintech | Minimal geometric — Stripe, Things 3, Linear, Arc Browser | colorful playful animal-cartoon |
+| Magazine / book cover | Era-anchored editorial — 1990s Wallpaper, early Wired, Aperture, New Yorker | generic stock-cover, ad-look |
+| Product photo / e-commerce hero | Studio commercial — name a real campaign era (Aesop, Glossier, Apple product page) | painterly, illustrated |
+| Luxury / fashion / fragrance | Named houses — Tom Ford, Dior, Aesop, Hermès campaign | bright pop-art, kawaii |
+| Children's app / illustration | Soft watercolor — Beatrix Potter, Sago Mini, Khan Kids | corporate-flat, photoreal |
+| Designer collectible / merch | Matte vinyl — Bearbrick, Funko, Medicom, Pop Mart, Daniel Arsham | flat-vector (looks cheap) |
+| Game IP character | Match game's art direction explicitly (pixel/low-poly/painted/anime) | generic 3D blob |
+| Editorial mascot for content brand | Restrained character — Mailchimp Freddie, MailerLite, MetaMask fox, Duolingo Lily | cute-overload sparkles rosy-cheeks |
+| Loading screen / single-color mark | Monoline silhouette — Octocat solid, Twitter old bird, Things 3 mark | painterly multi-tone |
+| Pitch deck / SaaS slide | Flat, restrained — Apple Keynote-grade, Stripe slide deck | clip-art, stock-photo |
+
+**Rule**: name ONE specific anchor in the prompt, not a list. Specificity is the contract; "Linear-inspired flat-vector friendly modern" is mush. The model has seen Snoo; it has not seen "playful flat character."
+
+For mascot/character work specifically, see `recipes/mascot.md` — it expands this matrix with the failure modes the model defaults to in each context.
+
 ## Color & palette
 
 State a palette explicitly:

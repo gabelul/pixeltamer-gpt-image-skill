@@ -130,27 +130,9 @@ If wrong: change ONE prompt dimension, regenerate. Never bolt 3 new clauses on a
 | Off-brand color | Add hex codes / named palette |
 | Text wrong | Re-quote text + add "no extra characters" |
 
-## References on demand
+## Routing
 
-| File | Load when |
-|---|---|
-| `references/prompting.md` | Any non-trivial prompt |
-| `references/api-backend.md` | API troubleshooting, env vars, custom hosts |
-| `references/codex-backend.md` | Codex troubleshooting, invocation patterns |
-| `references/multi-reference.md` | Compose mode (labeling pattern matters) |
-| `references/post-process.md` | Compress, resize, convert, alpha-extract |
-| `references/ui-mockup-prompting.md` | UI / dashboard / app screen / marketing page |
-
-## Recipes on demand
-
-| File | Trigger |
-|---|---|
-| `recipes/infographic.md` | Educational visual, stats, framework, listicle |
-| `recipes/meta-ad.md` | Meta/IG/FB ad creative, hook overlay |
-| `recipes/viral-linkedin.md` | LinkedIn scroll-stop, quote card, carousel cover |
-| `recipes/ui-mockup.md` | Dashboard, marketing page, mobile screen |
-| `recipes/editorial-cover.md` | Magazine cover, book cover, podcast art, poster |
-| `recipes/product-photo.md` | Product hero, lifestyle, packaging proof |
+Read `references/index.md` first; load smallest useful slice. Never write a prompt from scratch when a similar pattern exists.
 
 ## Output to user
 
