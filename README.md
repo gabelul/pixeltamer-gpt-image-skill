@@ -6,7 +6,7 @@
 
 Six different image-gen skills were rotting in my `to_check/` folder, each doing one thing well and three things badly. So I merged them, kept the parts that earned their keep, dropped the rest. This is the result — one skill, two backends, three modes, zero generic-AI-slop output.
 
-Generate, edit, and compose images with `gpt-image-2` from inside Claude Code, Codex CLI, OpenCode, Cursor — or any agent that reads `SKILL.md`. Bring an OpenAI API key OR sign in to your ChatGPT subscription via codex; same prompts, same recipes, your call on how to pay. Ships with a prompting doctrine that drops the "8K, ultra detailed, masterpiece" magic words this model actively hates, six production recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo), and a 29-test multi-image batch verifier so you don't ship broken renders.
+Generate, edit, and compose images with `gpt-image-2` from inside Claude Code, Codex CLI, OpenCode, Cursor — or any agent that reads `SKILL.md`. Bring an OpenAI API key OR sign in to your ChatGPT subscription via codex; same prompts, same recipes, your call on how to pay. Ships with a prompting doctrine that drops the "8K, ultra detailed, masterpiece" magic words this model actively hates, seven production recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot — the new mascot recipe has a phased Discovery → Concept Lock → Production → Maintenance workflow with empirically-validated format choices), a curated `playbook/` of remixable prompts for character-sheets and typography-posters, a central `references/index.md` routing map so the right recipe gets loaded on first try, and a 31-test suite covering the multi-image batch verifier plus the index-staleness check.
 
 Works in Claude Code, Codex CLI, OpenCode, Cursor, and 50+ other agents via [the Skills CLI](https://github.com/vercel-labs/skills).
 
@@ -149,7 +149,7 @@ Real images we shipped with this repo (mascot, social card, hero, mode trio, com
 
 ```
 pixeltamer/
-├── SKILL.md                    workflow Claude reads
+├── SKILL.md                    workflow Claude reads (Step 0 routes via references/index.md)
 ├── SKILL-OC.md                 token-optimized variant for OpenClaw
 ├── scripts/
 │   ├── pixeltamer              bash dispatcher, auto-detects backend
@@ -157,10 +157,11 @@ pixeltamer/
 │   ├── pixeltamer_codex.sh     codex CLI wrapper with dual invocation + fallback
 │   ├── verify-images.mjs       multi-image batch verifier orchestrator
 │   └── lib/                    parser + verifier + status writer (pure functions)
-├── references/                 prompting doctrine, backend guides, multi-ref mastery, post-processing
-├── recipes/                    6 production recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo)
+├── references/                 prompting doctrine + index.md routing map + backend guides + multi-ref mastery + post-processing
+├── recipes/                    7 deep how-to recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot)
+├── playbook/                   curated remix prompts (v1: character-sheets, typography-posters); BACKLOG.md stages v2/v3/v4
 ├── examples/                   4 demonstration PNGs (~3 MB)
-└── tests/                      29 tests covering parser, verifier, status writer
+└── tests/                      31 tests — parser + verifier + status writer + index-staleness sync check
 ```
 
 ---
