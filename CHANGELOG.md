@@ -2,6 +2,13 @@
 
 All notable changes to pixeltamer get logged here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2](https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.4.1...v0.4.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* self-heal +x on siblings, skills CLI strips mode on copy ([aaa3fde](https://github.com/gabelul/pixeltamer-gpt-image-skill/commit/aaa3fdeb59eb982f91b987322d9cafe7479371f4))
+
 ## [Unreleased]
 
 ### Fixed
