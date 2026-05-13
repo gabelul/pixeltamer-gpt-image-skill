@@ -46,8 +46,10 @@ import argparse
 import base64
 import json
 import mimetypes
+import random
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -311,50 +313,177 @@ def extract_image_b64(events: list[dict]) -> str | None:
     return None
 
 
+# --------------------------------------------------------------------------- retry
+
+# Error codes we treat as transient infra failures and worth retrying. Hit on
+# response.failed events when OpenAI's internal pipeline drops mid-generation
+# (the gpt-image-2 backend's WS dies, the codex-lb proxy hits a capacity wall,
+# a worker times out). All of these are "try again in a moment, it'll probably
+# work" — distinct from 4xx (bad request, never going to work) or "model
+# declined to call the tool" (retrying won't change its mind on the same input).
+RETRIABLE_FAILURE_CODES = frozenset({
+    "websocket_error",
+    "server_error",
+    "rate_limit_exceeded",
+    "service_unavailable",
+})
+
+
+def _failure_code(events: list[dict]) -> str | None:
+    """If a response.failed event is present, return its error.code; else None.
+
+    Used after a stream completes without producing an image to distinguish
+    transient infra failures (retriable) from silent tool-declines (not). The
+    error payload sometimes lives at data.response.error and sometimes at
+    data.error depending on upstream version — check both.
+    """
+    for ev in reversed(events):
+        d = ev.get("data") or {}
+        if d.get("type") == "response.failed":
+            err = (d.get("response") or {}).get("error") or d.get("error") or {}
+            code = err.get("code")
+            if isinstance(code, str):
+                return code
+    return None
+
+
+def _backoff_seconds(attempt: int) -> float:
+    """Exponential backoff with ±25% jitter. attempt is 0-indexed.
+
+    attempt=0 → ~2s, attempt=1 → ~4s, attempt=2 → ~8s. Jitter spreads
+    concurrent retries so a thundering-herd doesn't slam the proxy in lockstep
+    after a shared upstream blip.
+    """
+    base = 2.0 * (2 ** attempt)
+    jitter = base * 0.25 * (2 * random.random() - 1)
+    return max(0.1, base + jitter)
+
+
 # --------------------------------------------------------------------------- runner
 
-def run_one(*, prompt: str, images: list[Path], size: str, out: Path, debug: bool) -> Path:
-    """Orchestrate one POST: build request, send, parse SSE, save the PNG."""
+def run_one(*, prompt: str, images: list[Path], size: str, out: Path, debug: bool,
+            max_retries: int = 2) -> Path:
+    """Orchestrate one logical generation: build the request, send it (with
+    retry on transient infra failures), parse SSE, save the PNG.
+
+    Retries on: HTTP 5xx, urllib URLError (connection drops), and SSE
+    response.failed events whose error.code is in RETRIABLE_FAILURE_CODES
+    (websocket_error, server_error, rate_limit_exceeded, service_unavailable).
+    These are the OpenAI/codex-lb-side blips that don't reflect a problem
+    with the request — the internal WS to gpt-image-2 dropped mid-generation,
+    a worker timed out, the load balancer hit a wall. Retrying tends to work.
+
+    Does NOT retry on: HTTP 4xx (we did something wrong — bad shape, bad
+    token, no quota), token_expired specifically (special-case so the user
+    gets the `codex login` hint immediately), or stream-completed-without-
+    image-and-without-response.failed (the model silently declined to call
+    the tool — retrying with the same prompt won't change its mind).
+
+    max_retries=N gives N retries on top of the initial attempt (so
+    max_retries=2 → up to 3 total attempts). Set max_retries=0 to disable.
+    """
     session = load_codex_session()
     url, headers, body = build_request(
         session=session, prompt=prompt, images=images, size=size,
     )
+    request_data = json.dumps(body).encode("utf-8")
 
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request, timeout=300) as response:
-            response_text = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as error:
-        body_preview = error.read().decode("utf-8", errors="replace")[:1500]
-        # Detect token_expired specifically — surface a useful next-step.
-        if error.code == 401 and "token_expired" in body_preview:
-            sys.exit(
-                "pixeltamer_codex_oauth: codex access_token expired. "
-                "Run `codex login` to mint a fresh one. "
-                "(If you're behind a local codex proxy that should auto-refresh, "
-                "check that the proxy is reachable.)"
-            )
-        sys.exit(
-            f"pixeltamer_codex_oauth: HTTP {error.code} {error.reason}\n"
-            f"Response body:\n{body_preview}"
+    last_response_text = ""
+    for attempt in range(max_retries + 1):
+        request = urllib.request.Request(
+            url, data=request_data, headers=headers, method="POST",
         )
-    except urllib.error.URLError as error:
-        sys.exit(f"pixeltamer_codex_oauth: connection error: {error}")
 
-    events = parse_sse_stream(response_text)
-    image_b64 = extract_image_b64(events)
+        try:
+            with urllib.request.urlopen(request, timeout=300) as response:
+                response_text = response.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as error:
+            body_preview = error.read().decode("utf-8", errors="replace")[:1500]
+            # Token expired is its own special case — never retry, the user
+            # needs to run `codex login` before anything will work again.
+            if error.code == 401 and "token_expired" in body_preview:
+                sys.exit(
+                    "pixeltamer_codex_oauth: codex access_token expired. "
+                    "Run `codex login` to mint a fresh one. "
+                    "(If you're behind a local codex proxy that should auto-refresh, "
+                    "check that the proxy is reachable.)"
+                )
+            # 5xx is the proxy / upstream having a moment — back off and try again.
+            if 500 <= error.code < 600 and attempt < max_retries:
+                wait = _backoff_seconds(attempt)
+                print(
+                    f"pixeltamer_codex_oauth: HTTP {error.code} {error.reason}; "
+                    f"retrying in {wait:.1f}s "
+                    f"(attempt {attempt + 2}/{max_retries + 1})",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+                continue
+            # 4xx or out-of-retries — surface immediately.
+            sys.exit(
+                f"pixeltamer_codex_oauth: HTTP {error.code} {error.reason}\n"
+                f"Response body:\n{body_preview}"
+            )
+        except urllib.error.URLError as error:
+            # Connection-level failure (DNS, TCP, TLS, read timeout). Always
+            # retriable up to the cap — these are pure transport issues.
+            if attempt < max_retries:
+                wait = _backoff_seconds(attempt)
+                print(
+                    f"pixeltamer_codex_oauth: connection error ({error}); "
+                    f"retrying in {wait:.1f}s "
+                    f"(attempt {attempt + 2}/{max_retries + 1})",
+                    file=sys.stderr,
+                )
+                time.sleep(wait)
+                continue
+            sys.exit(f"pixeltamer_codex_oauth: connection error: {error}")
 
-    if not image_b64:
-        # Save raw response for diagnosis.
+        last_response_text = response_text
+        events = parse_sse_stream(response_text)
+        image_b64 = extract_image_b64(events)
+
+        if image_b64:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(base64.b64decode(image_b64))
+
+            if debug:
+                # Quick event summary so the caller can see what happened.
+                event_types: dict[str, int] = {}
+                for ev in events:
+                    t = (ev.get("data") or {}).get("type", "?")
+                    event_types[t] = event_types.get(t, 0) + 1
+                print(f"[debug] {len(events)} SSE events:", file=sys.stderr)
+                for t, n in sorted(event_types.items(), key=lambda x: -x[1]):
+                    print(f"[debug]   {n:3} × {t}", file=sys.stderr)
+
+            return out
+
+        # No image. Was it a retriable infra failure (response.failed with a
+        # known transient code), or a silent decline?
+        failure_code = _failure_code(events)
+        if failure_code in RETRIABLE_FAILURE_CODES and attempt < max_retries:
+            wait = _backoff_seconds(attempt)
+            print(
+                f"pixeltamer_codex_oauth: response.failed code={failure_code}; "
+                f"retrying in {wait:.1f}s "
+                f"(attempt {attempt + 2}/{max_retries + 1})",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
+            continue
+
+        # Out of retries, or non-retriable absence-of-image. Save the raw SSE
+        # for diagnosis and exit with the same messages as the pre-retry code.
         debug_path = out.parent / f"{out.stem}.debug-response.txt"
         out.parent.mkdir(parents=True, exist_ok=True)
         debug_path.write_text(response_text, encoding="utf-8")
+        if failure_code:
+            sys.exit(
+                f"pixeltamer_codex_oauth: response.failed code={failure_code} "
+                f"after {attempt + 1} attempt(s).\n"
+                f"Raw SSE saved to: {debug_path}"
+            )
         sys.exit(
             f"pixeltamer_codex_oauth: response stream completed without an "
             f"image_generation_call result.\n"
@@ -364,20 +493,13 @@ def run_one(*, prompt: str, images: list[Path], size: str, out: Path, debug: boo
             f"was rejected silently."
         )
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(base64.b64decode(image_b64))
-
-    if debug:
-        # Quick event summary so the caller can see what happened.
-        event_types: dict[str, int] = {}
-        for ev in events:
-            t = (ev.get("data") or {}).get("type", "?")
-            event_types[t] = event_types.get(t, 0) + 1
-        print(f"[debug] {len(events)} SSE events:", file=sys.stderr)
-        for t, n in sorted(event_types.items(), key=lambda x: -x[1]):
-            print(f"[debug]   {n:3} × {t}", file=sys.stderr)
-
-    return out
+    # Safety: loop fell through without returning or exiting. Shouldn't be
+    # reachable given the structure above (every branch either continues,
+    # returns, or sys.exits) but belt-and-suspenders for future edits.
+    sys.exit(
+        f"pixeltamer_codex_oauth: exhausted {max_retries + 1} attempts "
+        f"without success. Last response captured ({len(last_response_text)} bytes)."
+    )
 
 
 # --------------------------------------------------------------------------- subcommand handlers
@@ -391,6 +513,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         size=args.size,
         out=Path(args.out),
         debug=args.debug,
+        max_retries=args.max_retries,
     )
     print(out.resolve())
     return 0
@@ -406,6 +529,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         size=args.size,
         out=Path(args.out),
         debug=args.debug,
+        max_retries=args.max_retries,
     )
     print(out.resolve())
     return 0
@@ -421,6 +545,7 @@ def cmd_compose(args: argparse.Namespace) -> int:
         size=args.size,
         out=Path(args.out),
         debug=args.debug,
+        max_retries=args.max_retries,
     )
     print(out.resolve())
     return 0
@@ -444,6 +569,11 @@ def _add_common_flags(p: argparse.ArgumentParser) -> None:
                         "directly; flag is recorded but not currently sent")
     p.add_argument("--debug", action="store_true",
                    help="print SSE event summary on stderr")
+    p.add_argument("--max-retries", type=int, default=2,
+                   help="retries on transient infra failures "
+                        "(websocket_error, server_error, HTTP 5xx, connection "
+                        "drops). Default 2 (= up to 3 total attempts). "
+                        "Set 0 to disable retries.")
 
 
 def main(argv: list[str] | None = None) -> int:
