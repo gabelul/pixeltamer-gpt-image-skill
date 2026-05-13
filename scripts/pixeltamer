@@ -39,6 +39,27 @@ _have_codex() {
   _have codex && codex login status 2>&1 | grep -qi "logged in"
 }
 
+# Self-heal exec permissions on sibling scripts. The `skills` CLI's file copy
+# strips +x mode bits when it places files into ~/.claude/skills/, ~/.codex/skills/,
+# etc. — so a fresh `npx skills add` or `npx skills update` leaves every script
+# non-executable. We can't fix the dispatcher itself from inside the dispatcher
+# (it must already be +x for this code to run), but we CAN fix every sibling.
+# Returns the count of files repaired; caller decides whether to surface it.
+_self_heal_perms() {
+  local fixed=0 candidate
+  for candidate in \
+    "$script_dir/pixeltamer_codex.sh" \
+    "$script_dir/pixeltamer_api.py" \
+    "$script_dir/pixeltamer_codex_oauth.py" \
+    "$script_dir/verify-images.mjs"
+  do
+    if [[ -f "$candidate" && ! -x "$candidate" ]]; then
+      chmod +x "$candidate" 2>/dev/null && fixed=$((fixed + 1))
+    fi
+  done
+  echo "$fixed"
+}
+
 _load_config() {
   # Load saved backend preference, if any.
   if [[ -f "$config_file" ]] && _have python3; then
@@ -189,6 +210,23 @@ cmd_doctor() {
   echo "$prog doctor"
   echo "=============="
   echo
+  # Self-heal exec bits on siblings first — most "doctor reports codex/api as
+  # missing" reports trace back to a non-executable helper that the dispatcher
+  # silently couldn't invoke.
+  local healed
+  healed="$(_self_heal_perms)"
+  if [[ "$healed" -gt 0 ]]; then
+    echo "perms self-heal:    fixed +x on $healed script(s) in $script_dir"
+    echo "                    (the skills CLI installer strips mode bits on copy)"
+    echo
+  fi
+  # Check the dispatcher's own +x — we can only get here if it's executable,
+  # but report it so users can copy/paste a one-liner if they hit the issue
+  # on a sibling install path (project-level vs user-level skill dirs).
+  if [[ ! -x "$script_dir/pixeltamer" ]]; then
+    echo "dispatcher +x:      MISSING — run: chmod +x $script_dir/pixeltamer"
+    echo
+  fi
   echo "config file:        $config_file"
   if [[ -f "$config_file" ]]; then
     echo "config exists:      yes"
@@ -261,6 +299,16 @@ elif [[ "${1:-}" == --backend=* ]]; then
 fi
 
 _load_config
+
+# Silent self-heal of sibling script +x bits. The `skills` CLI installer copies
+# files without preserving POSIX mode, so a fresh install leaves api/codex/oauth
+# helpers non-executable. We've already proven we can run (the dispatcher is +x),
+# so quietly fix siblings before any subcommand tries to exec them.
+# Skip when subcommand is `doctor` — doctor does its own loud self-heal pass and
+# we don't want to silently consume the signal it needs to report.
+if [[ "${1:-}" != "doctor" && "${1:-}" != "diagnose" ]]; then
+  _self_heal_perms >/dev/null 2>&1 || true
+fi
 
 # First-run nudge: if no config and no backend obviously available, prompt setup.
 if [[ ! -f "$config_file" ]] && ! _have_api_key && ! _have_codex; then

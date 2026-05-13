@@ -188,6 +188,37 @@ Plus [50+ more agents](https://github.com/vercel-labs/skills) via the Skills CLI
 
 ---
 
+## Troubleshooting
+
+### `Permission denied` after `npx skills add` or `npx skills update`
+
+The `skills` CLI's file copy doesn't preserve POSIX mode bits, so a fresh install (or update) leaves pixeltamer's scripts non-executable. You'll see something like:
+
+```
+/Users/you/.local/bin/pixeltamer: line 2: /Users/you/.claude/skills/pixeltamer/scripts/pixeltamer: Permission denied
+```
+
+**The fix runs in 99% of cases automatically — just run doctor once:**
+
+```bash
+~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
+```
+
+The dispatcher self-heals `pixeltamer_api.py`, `pixeltamer_codex.sh`, `pixeltamer_codex_oauth.py`, and `verify-images.mjs` on every run. Doctor reports the count loudly. After that, normal `pixeltamer ...` calls heal silently if anything regresses.
+
+**If the dispatcher itself is non-executable** (the error message above), the self-heal can't run yet — fix the dispatcher first:
+
+```bash
+chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer
+# adjust the path if you installed for a different agent: ~/.codex/skills/..., ~/.agents/skills/..., etc.
+```
+
+Then `pixeltamer doctor` will repair the rest.
+
+This is an installer bug, not a pixeltamer bug — tracked upstream in the [`skills` CLI](https://github.com/vercel-labs/skills). Until that's fixed, the self-heal makes it a one-command recovery.
+
+---
+
 ## Related
 
 Other tools for agents that care about quality:

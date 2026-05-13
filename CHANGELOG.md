@@ -4,6 +4,11 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+### Fixed
+
+- **`scripts/pixeltamer` — self-heal missing +x on sibling scripts after `npx skills add` / `npx skills update`.** The Skills CLI's file copy doesn't preserve POSIX mode bits, so every install leaves `pixeltamer_api.py`, `pixeltamer_codex.sh`, `pixeltamer_codex_oauth.py`, and `verify-images.mjs` non-executable. The dispatcher's exec of those siblings then failed with `Permission denied` — the most visible symptom was `pixeltamer batch` silently broken (because `verify-images.mjs` was the one most likely to escape an earlier manual chmod), but every codex / API call hit the same wall on a clean install. Fix: added `_self_heal_perms()` which the dispatcher now runs silently on every non-doctor invocation, fixing siblings before they're exec'd. `pixeltamer doctor` runs it loudly and reports the repair count: `perms self-heal: fixed +x on N script(s)`. The dispatcher itself can only fix its siblings (it has to already be +x to run at all), so the one remaining manual step on a truly broken install is `chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer` — but most users hit only the sibling-perm flavor of this bug, where the shim execs into the dispatcher fine and self-heal handles the rest. **Upstream issue belongs in the `skills` CLI itself** — it should preserve `fs.statSync(src).mode` on copy, or chmod 0755 across `scripts/` directories post-install. Filed separately.
+- **README — Troubleshooting section.** New section documents the chmod one-liner for the dispatcher-itself case, points users at `pixeltamer doctor` for the sibling-case auto-heal, and links the upstream Skills CLI issue.
+
 ## [0.4.1] - 2026-05-14
 
 ### Fixed
