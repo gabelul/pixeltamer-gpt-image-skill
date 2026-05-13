@@ -4,6 +4,20 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-14
+
+### Fixed
+
+- **`scripts/pixeltamer_codex_oauth.py` — retry on transient infra failures.** Wraps the urlopen + SSE-parse loop in `run_one()` with exponential backoff retry (~2s / 4s / 8s with ±25% jitter, default 2 retries = up to 3 total attempts). Triggers on HTTP 5xx, urllib `URLError` (DNS / TCP / TLS / read-timeout), and SSE `response.failed` events whose `error.code` is in `{websocket_error, server_error, rate_limit_exceeded, service_unavailable}`. These correspond to OpenAI / codex-lb-side blips where the internal WS to gpt-image-2 dropped mid-generation or the proxy hit a capacity ceiling — exactly the failure mode 0.3.0's changelog flagged as "documented honest carry-over" with no handling yet. Does NOT retry on HTTP 4xx (request-side problem, won't fix itself), `token_expired` (special-cased, surfaces the `codex login` hint immediately), or stream-completed-without-image-and-without-failure-event (model declined to call the tool — retrying the same prompt won't change its mind). Retry attempts log to stderr without `--debug` so the user sees what's happening: `pixeltamer_codex_oauth: response.failed code=websocket_error; retrying in 2.0s (attempt 2/3)`.
+
+### Added
+
+- **`--max-retries N` flag on `pixeltamer_codex_oauth.py`.** Configurable retry cap, default 2. Set `0` to disable retries entirely (matches pre-0.4.1 behavior for anyone who needs the old fail-fast semantics). Threaded through `generate`, `edit`, and `compose` subcommands.
+
+### Investigated (honest carry-over)
+
+- **A/B'd pixeltamer's minimal request shape vs hermes-editing's enriched shape** (`tool_choice: required`, `partial_images: 1`, non-empty `instructions`, per-image `input_text` labels). Triggered by a compose-failure debugging session that initially diagnosed the failure as request-shape-driven, then got a Codex second opinion that flagged my "WS-keepalive via partial_images" mechanism as speculation. Built `scratch/ab-test/compose-shape-ab.py` and fired 8 paired trials per arm against the same prompt + same two reference images. Result: **both arms 8/8 success, latencies overlapping** (minimal 57-146s, hermes-full 53-92s — the early latency gap from the N=3 light-prompt run did NOT replicate at N=5 with a heavy compose prompt). The shape-rewrite hypothesis is disconfirmed at this sample size. The actual observed failure (`websocket_error` mid-generation) is what the retry above handles. **Hermes-style shape NOT shipped** — no measured reliability or latency benefit, shipping it would be churn risking output regressions on prompts the A/B didn't cover.
+
 ## [0.4.0] - 2026-05-08
 
 ### Added
