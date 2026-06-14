@@ -215,9 +215,23 @@ EOF
   if _have_codex;   then echo "  codex  ✓ codex installed and logged in"; else echo "  codex  ✗ run: codex login"; fi >&2
 }
 
+# Read the skill version straight out of package.json. sed-only so it works
+# even when python3/node aren't installed (doctor is exactly when they might
+# not be). package.json carries "version" once, so grabbing the first match
+# is safe.
+_pixeltamer_version() {
+  local pkg="$script_dir/../package.json"
+  [[ -f "$pkg" ]] || { echo "unknown"; return; }
+  local v
+  v="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pkg" | head -n1)"
+  echo "${v:-unknown}"
+}
+
 cmd_doctor() {
   echo "$prog doctor"
   echo "=============="
+  echo
+  echo "pixeltamer:         v$(_pixeltamer_version)"
   echo
   # Self-heal exec bits on siblings first — most "doctor reports codex/api as
   # missing" reports trace back to a non-executable helper that the dispatcher
