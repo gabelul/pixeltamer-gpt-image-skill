@@ -57,12 +57,12 @@ ln -s ~/.agents/skills/pixeltamer/scripts/pixeltamer ~/.local/bin/pixeltamer
 
 ### First run
 
-Once you can invoke `pixeltamer`:
-
 ```bash
 pixeltamer doctor      # diagnose which backends are available
 pixeltamer config      # interactive backend setup
 ```
+
+> **First call says `Permission denied`?** The `skills` CLI strips execute bits when it copies files, so the dispatcher lands non-executable. Restore it once — `chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer` (adjust the path for your agent) — then `doctor` self-heals everything else. Full explanation in [Troubleshooting](#troubleshooting). You'll need this one line again after each `npx skills update`, until the [upstream fix](https://github.com/vercel-labs/skills) lands.
 
 Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the API path, or `codex login` for the codex path. Auto-detect picks API if a key is set, else codex. Override with `--backend api|codex` per call or `PIXELTAMER_BACKEND` env var.
 
