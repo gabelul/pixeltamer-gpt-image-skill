@@ -55,6 +55,22 @@ ln -s "$PWD/pixeltamer" ./.claude/skills/pixeltamer
 ln -s ~/.agents/skills/pixeltamer/scripts/pixeltamer ~/.local/bin/pixeltamer
 ```
 
+### Updating
+
+```bash
+npx skills update
+```
+
+Same caveat as a fresh install: the CLI re-copies the files and strips their execute bits, so after every update re-run the dispatcher bootstrap once —
+
+```bash
+chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer   # adjust path per agent
+# ...or skip the chmod entirely and just run it through bash (self-heals the rest):
+bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
+```
+
+Everything except the dispatcher self-heals on the next run, so that one line is all an update needs.
+
 ### First run
 
 ```bash
