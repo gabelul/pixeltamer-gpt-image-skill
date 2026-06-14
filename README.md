@@ -66,6 +66,8 @@ pixeltamer config      # interactive backend setup
 
 Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the API path, or `codex login` for the codex path. Auto-detect picks API if a key is set, else codex. Override with `--backend api|codex` per call or `PIXELTAMER_BACKEND` env var.
 
+**Tuning the codex backend.** codex generations run under a timeout watchdog so a stalled `image_gen` call can't hang forever. `PIXELTAMER_CODEX_TIMEOUT` (seconds, default `360`) sets how long a single generation may run before it's killed; `PIXELTAMER_CODEX_KILL_GRACE` (default `5`) is the SIGTERM→SIGKILL gap. A timed-out generation exits `124` — distinct from `1` (ordinary failure), `2` (bad usage), and `127` (codex not installed / not logged in).
+
 ---
 
 ## How it works
@@ -198,22 +200,16 @@ The `skills` CLI's file copy doesn't preserve POSIX mode bits, so a fresh instal
 /Users/you/.local/bin/pixeltamer: line 2: /Users/you/.claude/skills/pixeltamer/scripts/pixeltamer: Permission denied
 ```
 
-**The fix runs in 99% of cases automatically — just run doctor once:**
+**As of v0.5.1, the dispatcher itself is the only file that needs `+x`.** Every other script runs through its interpreter (`python3` / `node` / `bash`), so a stripped bit on them no longer matters — and the dispatcher self-heals those anyway as belt-and-suspenders. But the dispatcher is launched *by path* through the `~/.local/bin/pixeltamer` shim, so it must be executable, and it can't restore its own bit (it has to run first). Two one-liners, either works:
 
 ```bash
-~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
-```
-
-The dispatcher self-heals `pixeltamer_api.py`, `pixeltamer_codex.sh`, `pixeltamer_codex_oauth.py`, and `verify-images.mjs` on every run. Doctor reports the count loudly. After that, normal `pixeltamer ...` calls heal silently if anything regresses.
-
-**If the dispatcher itself is non-executable** (the error message above), the self-heal can't run yet — fix the dispatcher first:
-
-```bash
+# restore the bit permanently:
 chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer
-# adjust the path if you installed for a different agent: ~/.codex/skills/..., ~/.agents/skills/..., etc.
-```
+# adjust path for other agents: ~/.codex/skills/..., ~/.agents/skills/..., etc.
 
-Then `pixeltamer doctor` will repair the rest.
+# ...or run it through bash without changing perms — it self-heals the rest from there:
+bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
+```
 
 This is an installer bug, not a pixeltamer bug — tracked upstream in the [`skills` CLI](https://github.com/vercel-labs/skills). Until that's fixed, the self-heal makes it a one-command recovery.
 

@@ -4,6 +4,10 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+### Documented
+
+- **README — codex backend env vars + exit codes.** The setup section now documents `PIXELTAMER_CODEX_TIMEOUT` / `PIXELTAMER_CODEX_KILL_GRACE` and the full exit-code list (`124` timeout, `1` failure, `2` usage, `127` not installed/logged in) — previously only in the script header. The `+x` troubleshooting section is refreshed for 0.5.1: the dispatcher is now the only file that needs the execute bit, with both the `chmod` and `bash`-bootstrap recoveries.
+
 ## [0.5.1] - 2026-06-14
 
 ### Fixed
