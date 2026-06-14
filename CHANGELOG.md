@@ -4,6 +4,14 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+### Changed
+
+- **Removed the non-functional release-please workflow.** It ran on every push, did nothing, and never produced a GitHub Release in months. Releases here are manual and now documented properly instead of pretending to be automated.
+
+### Documented
+
+- **`RELEASING.md` (new).** The manual release steps + SemVer bump rules (the `feat`→minor / `fix`→patch mapping that previously only existed in the deleted workflow's comments), plus the post-update `chmod` note. Backfilled GitHub Releases for every existing tag (v0.1.0 → v0.5.2) from their CHANGELOG sections so the Releases page is no longer empty.
+
 ## [0.5.2] - 2026-06-14
 
 ### Added
