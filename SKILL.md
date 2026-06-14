@@ -106,6 +106,8 @@ codex login status
 
 No restart needed. The bash backend reads codex auth fresh on every invocation.
 
+codex updates **separately** from the skill — `npx skills update` won't touch it. `pixeltamer doctor` now reports the installed codex version and flags when it's behind npm latest (a stale codex is a known failure mode — an old schema version once caused indefinite hangs). If doctor says an update's available, run `npm install -g @openai/codex@latest`.
+
 ### After the user sets things up
 
 Re-run `pixeltamer doctor` to confirm. Then proceed with the original request.

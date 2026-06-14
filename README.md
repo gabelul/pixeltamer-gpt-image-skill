@@ -71,6 +71,8 @@ bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
 
 Everything except the dispatcher self-heals on the next run, so that one line is all an update needs.
 
+**The codex CLI updates separately.** `npx skills update` refreshes the skill, not your global codex install — and a stale codex is a real failure mode (an old schema version once caused indefinite hangs). `pixeltamer doctor` reports the installed codex version and flags when it's behind npm latest; if it is, run `npm install -g @openai/codex@latest`.
+
 ### First run
 
 ```bash
