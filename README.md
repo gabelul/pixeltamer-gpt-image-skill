@@ -69,7 +69,7 @@ chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer   # adjust path per agen
 bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
 ```
 
-Everything except the dispatcher self-heals on the next run, so that one line is all an update needs.
+Everything except the dispatcher self-heals on the next run, so that one line is all an update needs. `pixeltamer doctor` will also tell you when your installed version is behind the latest release, so you know when an update is worth running.
 
 **The codex CLI updates separately.** `npx skills update` refreshes the skill, not your global codex install — and a stale codex is a real failure mode (an old schema version once caused indefinite hangs). `pixeltamer doctor` reports the installed codex version and flags when it's behind npm latest; if it is, run `npm install -g @openai/codex@latest`.
 

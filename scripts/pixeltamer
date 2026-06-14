@@ -227,6 +227,22 @@ _pixeltamer_version() {
   echo "${v:-unknown}"
 }
 
+# Latest pixeltamer release version from GitHub. pixeltamer isn't on npm — it's a
+# Skills-CLI skill — so the latest published version is the newest GitHub release
+# tag. Owner/repo is parsed out of package.json's repository.url so it's not
+# hardcoded. Network call bounded by curl --max-time; returns empty (and doctor
+# skips the staleness line) when curl is missing, offline, or rate-limited.
+_latest_skill_version() {
+  command -v curl >/dev/null 2>&1 || return 0
+  local pkg="$script_dir/../package.json" url repo
+  [[ -f "$pkg" ]] || return 0
+  url="$(sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$pkg" | head -1)"
+  repo="$(printf '%s' "$url" | sed -E 's#.*github\.com[/:]##; s#\.git$##; s#/$##')"
+  [[ -n "$repo" ]] || return 0
+  curl -fsSL --max-time 6 "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' | head -1
+}
+
 # Installed codex version, e.g. "codex-cli 0.138.0" -> 0.138.0.
 _codex_installed_version() { codex --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
 
@@ -243,7 +259,22 @@ cmd_doctor() {
   echo "$prog doctor"
   echo "=============="
   echo
-  echo "pixeltamer:         v$(_pixeltamer_version)"
+  # Skill version + staleness. "Latest" is the newest GitHub release; if the
+  # installed skill is behind, the fix is `npx skills update` (which the docs
+  # note also needs the one-line dispatcher chmod afterward).
+  local sv lsv
+  sv="$(_pixeltamer_version)"
+  lsv="$(_latest_skill_version)"
+  if [[ -z "$lsv" || "$sv" == "unknown" ]]; then
+    echo "pixeltamer:         v$sv"
+  elif [[ "$sv" == "$lsv" ]]; then
+    echo "pixeltamer:         v$sv  (latest)"
+  elif [[ "$(printf '%s\n%s\n' "$sv" "$lsv" | sort -V | tail -1)" == "$lsv" ]]; then
+    echo "pixeltamer:         v$sv  → update available: v$lsv"
+    echo "                    run: npx skills update   (then chmod +x the dispatcher — see README)"
+  else
+    echo "pixeltamer:         v$sv  (ahead of latest release v$lsv)"
+  fi
   echo
   # Self-heal exec bits on siblings first — most "doctor reports codex/api as
   # missing" reports trace back to a non-executable helper that the dispatcher
