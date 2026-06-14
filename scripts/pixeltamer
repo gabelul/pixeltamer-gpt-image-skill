@@ -42,8 +42,15 @@ _have_codex() {
 # Self-heal exec permissions on sibling scripts. The `skills` CLI's file copy
 # strips +x mode bits when it places files into ~/.claude/skills/, ~/.codex/skills/,
 # etc. — so a fresh `npx skills add` or `npx skills update` leaves every script
-# non-executable. We can't fix the dispatcher itself from inside the dispatcher
-# (it must already be +x for this code to run), but we CAN fix every sibling.
+# non-executable.
+#
+# As of the bash-invoke change below, NO sibling strictly needs +x anymore: the
+# Python/Node helpers are run via `python3`/`node` and pixeltamer_codex.sh is run
+# via `bash`. This repair is now belt-and-suspenders — it protects any FUTURE
+# sibling that gets direct-exec'd, and keeps `pixeltamer doctor` able to report
+# the count. The one file we still can't fix from here is the dispatcher itself
+# (it must already be +x for this code to run); that's an upstream skills-CLI bug
+# — see README / docs/dev-docs/troubleshooting.md for the manual one-liner.
 # Returns the count of files repaired; caller decides whether to surface it.
 _self_heal_perms() {
   local fixed=0 candidate
@@ -132,7 +139,9 @@ cmd_generate() {
   backend="$(_detect_backend)"
   case "$backend" in
     api)   exec python3 "$script_dir/pixeltamer_api.py" generate "$@" ;;
-    codex) exec "$script_dir/pixeltamer_codex.sh" "$@" ;;
+    # Invoke via `bash` (not direct exec) so a +x bit stripped by the skills CLI
+    # copy can't break codex generation — matches how the py/node helpers run.
+    codex) exec bash "$script_dir/pixeltamer_codex.sh" "$@" ;;
   esac
 }
 

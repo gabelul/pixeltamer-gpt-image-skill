@@ -60,6 +60,17 @@ pixeltamer doctor
 
 If the output shows at least one backend with a `✓` marker, you're set — go generate. Auto-detect picks API if a key is set, otherwise codex. Override with `--backend api|codex` per-call or set `PIXELTAMER_BACKEND` env var.
 
+**If `pixeltamer doctor` fails with `permission denied` instead of printing backend status:** the `skills` CLI stripped the dispatcher's execute bit on install/update. The dispatcher can't restore its own bit (it has to run to do that), so bootstrap it once via bash — it self-heals everything else from there:
+
+```bash
+# run it through bash (works even without +x):
+bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
+# or restore the bit permanently:
+chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer
+```
+
+Every other script now runs via its interpreter, so the dispatcher is the only file this bit can break.
+
 If BOTH backends show `✗`, **do not run `pixeltamer config`** — it's an interactive prompt that needs a real TTY, which the Bash tool doesn't have, so the call hangs forever. Use `AskUserQuestion` instead and offer the user this choice:
 
 > "Pixeltamer needs one of two backends. Pick:
