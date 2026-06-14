@@ -4,6 +4,12 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-06-14
+
+### Added
+
+- **`pixeltamer doctor` now checks the codex CLI version against npm latest.** codex is installed separately from the skill, so `npx skills update` never updates it — and a stale codex is a genuine failure mode (the v0.136-vs-gpt-5.5 schema mismatch behind the original indefinite-hang bug). doctor now prints the installed codex version and, when it's behind, the exact fix: `npm install -g @openai/codex@latest`. The latest-check is a network call bounded by a perl `alarm` (macOS has no coreutils `timeout`), so it skips silently — never hangs — when the registry is slow or unreachable. Note: the skill's *own* dispatcher isn't subject to this; it lives inside the skill and updates with `npx skills update`, so there's no separate-binary staleness for pixeltamer itself — only for the codex backend it shells out to.
+
 ### Changed
 
 - **Removed the non-functional release-please workflow.** It ran on every push, did nothing, and never produced a GitHub Release in months. Releases here are manual and now documented properly instead of pretending to be automated.
