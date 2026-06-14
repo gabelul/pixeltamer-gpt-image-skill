@@ -27,5 +27,7 @@ __pycache__/
 
 # agent / orchestrator state
 .omc/
+.omx/
+.github/assets/.omx/
 .claude/local/
 .claude-mem/
