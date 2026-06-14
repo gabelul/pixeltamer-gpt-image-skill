@@ -4,6 +4,12 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-06-14
+
+### Added
+
+- **`pixeltamer doctor` now flags when the skill itself is out of date.** It compares the installed version against the latest GitHub release and, when behind, points you at `npx skills update` (plus the one-line dispatcher chmod). pixeltamer isn't on npm — it's a Skills-CLI skill — so "latest" is the newest GitHub release tag; the repo is parsed out of `package.json`'s `repository.url` rather than hardcoded. The API call is bounded by `curl --max-time` and skips silently when curl is missing, offline, or rate-limited. Together with the codex check from 0.5.3, doctor now surfaces staleness in both the skill *and* the backend it shells out to.
+
 ## [0.5.3] - 2026-06-14
 
 ### Added
