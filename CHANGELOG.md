@@ -4,6 +4,16 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-14
+
+### Fixed
+
+- **codex generation no longer breaks when the `skills` CLI strips a script's execute bit.** The CLI's file copy doesn't preserve POSIX mode bits, so every `npx skills add` / `update` left scripts at `0644`. The dispatcher already ran the Python/Node helpers via `python3`/`node` (so their `+x` never mattered), but `pixeltamer_codex.sh` was the one sibling exec'd *directly* — and a stripped bit there silently broke codex generation. It now runs via `bash` like the others, so **no sibling needs `+x` at all**. The `_self_heal_perms()` chmod is kept as belt-and-suspenders for any future direct-exec'd helper, and `pixeltamer doctor` still reports the repair count. The only file that genuinely still needs `+x` is the dispatcher entry point itself — it's launched by-path through the `~/.local/bin/pixeltamer` shim and can't restore its own bit, so a single `chmod +x scripts/pixeltamer` after install remains the one irreducible manual step until the upstream CLI preserves mode bits (or its generated shim switches to `exec bash <dispatcher>`).
+
+### Documented
+
+- **SKILL.md — permission-denied recovery.** Names the exact failure mode (`pixeltamer doctor` returns `permission denied` instead of backend status) and the bootstrap: run it once via `bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor`, or `chmod +x` the dispatcher. Notes that the dispatcher is now the only file the bit can break.
+
 ## [0.5.0] - 2026-06-14
 
 ### Added
