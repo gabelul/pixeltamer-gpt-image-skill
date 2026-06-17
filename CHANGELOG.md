@@ -4,6 +4,20 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-06-17
+
+### Fixed
+
+- **`batch` mode no longer crashes on a fresh install.** `verify-images.mjs` imported the `image-size` npm package, but the Skills CLI copies files without running `npm install` — so the installed skill had no `node_modules`, and `pixeltamer batch` died at import with `Cannot find module 'image-size'` on every clean install. (generate / edit / compose were unaffected — they're stdlib/bash only.)
+
+### Changed
+
+- **Dropped the `image-size` dependency; pixeltamer is now zero runtime dependencies.** Replaced it with `scripts/lib/image-dimensions.mjs`, a ~70-line PNG/JPEG header reader (width/height live in the IHDR / SOF bytes). Same `getDimensions` seam, so the verifier and its tests are untouched. Every backend and helper now runs on stock bash / Python stdlib / Node — there is nothing left to `npm install`, which also means the "no node_modules after install" behavior of the Skills CLI stops mattering for us.
+
+### Added
+
+- **8 tests for the dimension reader** (PNG IHDR, JPEG SOF, restart-marker skip, non-image/empty/short buffers, a real example PNG, and a throwing reader → null). Suite is now 39 tests. Verified end-to-end: `batch` reads true dimensions off real PNGs and correctly fails a size mismatch.
+
 ## [0.5.4] - 2026-06-14
 
 ### Added
