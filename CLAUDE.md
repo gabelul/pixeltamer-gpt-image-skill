@@ -20,6 +20,7 @@ scripts/
     parse-prompts.mjs                — parser for prompts.md state-machine format
     verify-entry.mjs                 — per-entry checks: file exists, dimensions, size, format
     write-status.mjs                 — surgical status field updater for prompts.md
+    image-dimensions.mjs             — zero-dep PNG/JPEG header reader (replaced the image-size npm dep)
 references/
   prompting.md                       — the doctrine. Canonical structure, what NOT to say.
   api-backend.md                     — API specifics, env vars, troubleshooting
@@ -35,7 +36,7 @@ recipes/
   editorial-cover.md
   product-photo.md
 examples/                            — 4 curated demonstration PNGs
-tests/                               — 29 unit tests covering parser, verifier, status writer
+tests/                               — 39 unit tests covering parser, verifier, status writer, image-dimension reader
 ```
 
 ## How the skill works
@@ -86,7 +87,7 @@ For projects that need 4+ related images generated together with verification, `
 3. **Visual self-review** by Claude — `Read` each newly-verified PNG, judge subject/style/artifacts, demote to `failed:<reason>` if mismatched.
 4. **Re-generate** only the failed entries.
 
-The parser, verifier, and status writer are pure functions with dependency injection — that's why they have 29 tests.
+The parser, verifier, and status writer are pure functions with dependency injection — that's why they have so many tests. The image-dimension reader is a pure parser over byte buffers, tested the same way (plus one real example PNG).
 
 ## Backend tradeoffs
 
@@ -107,13 +108,15 @@ The parser, verifier, and status writer are pure functions with dependency injec
 npm test
 ```
 
-Runs the 29-test suite via Node's built-in `node:test`. Coverage:
+Runs the 39-test suite via Node's built-in `node:test`. Coverage:
 
 - Parser: heading detection, field extraction, multi-line prompt parsing, CRLF normalization, invalid heading rejection.
 - Verifier: PNG/JPG passes, file-not-found, size bounds, extension mismatch, dimension mismatch, dimension-read failure, format unrecognized, size unparseable.
 - Status writer: single + multi-entry updates, prompt preservation, heading preservation, no-op on missing index, failed→verified demotion.
 
-All tests use dependency injection — no real image files needed.
+- Image dimensions: PNG IHDR read, JPEG SOF read, restart-marker skip, non-image/empty → null, a real example PNG, and an injected reader that throws → null.
+
+Tests lean on dependency injection (the size reader, fs, GitHub/npm lookups are all injectable), so almost nothing touches disk or the network — the one exception is a single real example PNG for the dimension reader.
 
 ## What pixeltamer is NOT
 

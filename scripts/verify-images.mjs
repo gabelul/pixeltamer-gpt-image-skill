@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { imageSize } from 'image-size';
+import { readImageDimensions } from './lib/image-dimensions.mjs';
 import { parsePromptsFile } from './lib/parse-prompts.mjs';
 import { verifyEntry } from './lib/verify-entry.mjs';
 import { writeStatusUpdates } from './lib/write-status.mjs';
@@ -37,14 +37,9 @@ function main() {
     existsSync,
     statSync,
   };
-  const getDimensions = (path) => {
-    try {
-      const result = imageSize(path);
-      return result ? { width: result.width, height: result.height } : null;
-    } catch {
-      return null;
-    }
-  };
+  // Zero-dep PNG/JPEG header reader; returns null on anything it can't read,
+  // which verifyEntry surfaces as "unable to read image dimensions".
+  const getDimensions = (path) => readImageDimensions(path);
 
   const updates = new Map();
   let toVerify = 0;
