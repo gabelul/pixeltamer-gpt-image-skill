@@ -4,6 +4,18 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+## [0.5.6] - 2026-08-20
+
+### Fixed
+
+- **`edit --help` no longer advertises a flag it rejects.** `_add_common_flags()` is shared by `generate`, `edit` and `compose`, so `edit` inherited `-i`'s "repeatable (-i a -i b -i c)" wording — then `cmd_edit` exited with `edit requires exactly one -i/--image`. The enforcement was right (edit takes one source, compose takes 2-16); only the inherited help string was wrong. `-i` and `--size` now carry per-subcommand wording. If you want several references, that has always been `compose`.
+
+- **`--size` says out loud when it won't be honoured.** It works for `generate` and is silently dropped for `edit`/`compose`: the Responses API returns the *input's* aspect the moment there's an input image. Measured — `generate` 1024x1536 → 1024x1536, `edit` 2160x3840 → 852x1846, `compose` 2160x3840 → 853x1844, the latter two at roughly 850px on the short edge for portrait inputs. pixeltamer does send the value, so this is API behaviour rather than a dropped flag, but the caller got no signal at all: ask for 4K, receive 850px, size your downstream crop off a number that never arrived. Both subcommands now warn on stderr, `--help` is honest about it, and `references/codex-backend.md` carries the measurements. `--backend api` is unaffected — `/v1/images/edits` accepts `size` properly.
+
+  Nothing auto-upscales to compensate. That would trade a silent surprise for a silent lie, and the caller is better placed to decide how to resize. There's a note in `codex-backend.md` on the trap that follows: an edit comes back small, so anything you upscale afterwards gets softer — text especially. If you composited text in before the edit, composite it back on *after* the upscale rather than round-tripping it through the model, because image models re-render text rather than preserving it.
+
+- **The index-staleness test stopped failing for reasons that had nothing to do with the index.** It listed `*.md` with a bare extension filter, so macOS AppleDouble sidecars (`._codex-backend.md`) counted as real reference files and got reported as missing from the routing map. Any checkout on a non-APFS volume — an external drive, a USB stick, a shared mount — grows those on every edit, so the suite broke for anyone in that situation the first time they touched a doc. Dotfiles are skipped now.
+
 ## [0.5.5] - 2026-06-17
 
 ### Fixed
