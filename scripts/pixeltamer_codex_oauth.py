@@ -519,10 +519,29 @@ def cmd_generate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _warn_size_ignored(args: argparse.Namespace, mode: str) -> None:
+    """
+    Say out loud that --size won't be honoured, instead of quietly returning something else.
+
+    The Responses API honours `size` for text-to-image but drops it the moment there's an input
+    image — you get the input's aspect back at whatever resolution it feels like. Callers building
+    a pipeline on top will size their downstream crop off a number that never arrives, so a note
+    buried in --help isn't enough.
+    """
+    if args.size and args.size != "auto":
+        print(
+            f"pixeltamer_codex_oauth: warning — --size {args.size} is not honoured for {mode} on "
+            "the codex backend; output follows the input image's aspect. Resize downstream, or "
+            "use --backend api where /v1/images/edits accepts a size.",
+            file=sys.stderr,
+        )
+
+
 def cmd_edit(args: argparse.Namespace) -> int:
     """1 source image + prompt -> edited image."""
     if not args.image or len(args.image) != 1:
         sys.exit("pixeltamer_codex_oauth: edit requires exactly one -i/--image")
+    _warn_size_ignored(args, "edit")
     out = run_one(
         prompt=args.prompt,
         images=[Path(args.image[0])],
@@ -539,6 +558,7 @@ def cmd_compose(args: argparse.Namespace) -> int:
     """2-16 reference images + prompt -> composed image."""
     if not args.image or not (2 <= len(args.image) <= 16):
         sys.exit("pixeltamer_codex_oauth: compose requires 2-16 -i/--image")
+    _warn_size_ignored(args, "compose")
     out = run_one(
         prompt=args.prompt,
         images=[Path(p) for p in args.image],
@@ -553,14 +573,30 @@ def cmd_compose(args: argparse.Namespace) -> int:
 
 # --------------------------------------------------------------------------- main
 
-def _add_common_flags(p: argparse.ArgumentParser) -> None:
+# Per-subcommand wording for the two flags whose behaviour actually differs by mode.
+# Sharing one help string across generate/edit/compose used to tell `edit` its -i was
+# repeatable, which it never was.
+_IMAGE_HELP = {
+    "generate": "optional reference image; repeatable (-i a -i b -i c)",
+    "edit": "source image to edit; exactly one",
+    "compose": "reference image; repeatable, 2-16 (-i a -i b -i c)",
+}
+_SIZE_HELP = {
+    "generate": "output size (default auto)",
+    "edit": "output size — NOT honoured on this backend; the Responses API returns "
+            "the input image's aspect regardless. Resize downstream.",
+    "compose": "output size — NOT honoured on this backend; the Responses API returns "
+               "the input images' aspect regardless. Resize downstream.",
+}
+
+
+def _add_common_flags(p: argparse.ArgumentParser, mode: str = "generate") -> None:
     p.add_argument("-p", "--prompt", required=True, help="image description (quote it)")
     p.add_argument("-o", "--out", required=True, help="output PNG path")
-    p.add_argument("-i", "--image", action="append",
-                   help="reference image; repeatable (-i a -i b -i c)")
+    p.add_argument("-i", "--image", action="append", help=_IMAGE_HELP[mode])
     p.add_argument("--size", default="auto",
                    choices=SUPPORTED_SIZES,
-                   help="output size (default auto)")
+                   help=_SIZE_HELP[mode])
     p.add_argument("--quality",
                    choices=("low", "medium", "high", "auto"),
                    default="high",
@@ -584,15 +620,15 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_gen = sub.add_parser("generate", help="text -> image")
-    _add_common_flags(p_gen)
+    _add_common_flags(p_gen, "generate")
     p_gen.set_defaults(func=cmd_generate)
 
     p_edit = sub.add_parser("edit", help="1 source image + prompt -> edited image")
-    _add_common_flags(p_edit)
+    _add_common_flags(p_edit, "edit")
     p_edit.set_defaults(func=cmd_edit)
 
     p_comp = sub.add_parser("compose", help="2-16 references + prompt -> composed")
-    _add_common_flags(p_comp)
+    _add_common_flags(p_comp, "compose")
     p_comp.set_defaults(func=cmd_compose)
 
     args = parser.parse_args(argv)

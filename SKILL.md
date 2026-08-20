@@ -240,7 +240,7 @@ Pull only what's needed for the current job. Don't dump them all.
 | "8K, ultra detailed, masterpiece, trending on artstation" | Old-model magic words. gpt-image-2 ignores them or worse. |
 | "professional, beautiful, premium, stunning" | Praise language with zero instructional content. |
 | Generating before checking which backend is available | Run `pixeltamer doctor` first if it's the first call this session. |
-| Edit / compose on codex backend | Works since 0.3.0 via the OAuth Responses API (`pixeltamer_codex_oauth.py`). Mask-based inpainting still requires the API path — the Responses API doesn't take a mask parameter. |
+| Edit / compose on codex backend | Works since 0.3.0 via the OAuth Responses API (`pixeltamer_codex_oauth.py`). Mask-based inpainting still requires the API path — the Responses API doesn't take a mask parameter. So does any edit needing a specific output size: codex returns the input's aspect and ignores `--size`. |
 | Skipping visual self-verification | Image gen is stochastic. "API succeeded" ≠ "image is correct". |
 | Stacking three new clauses when one isn't working | Change one dimension at a time. You won't know what helped otherwise. |
 | Running examples folder PNGs as ground truth | They're demonstrations, not specs. Composition will vary on regen. |
@@ -253,10 +253,11 @@ Pull only what's needed for the current job. Don't dump them all.
 | Don't have / don't want an API key | codex |
 | Edit an existing image (no mask) | Either backend — API or codex-OAuth |
 | Mask-based inpainting | API only — Responses API doesn't take a mask parameter |
+| A guaranteed output size when editing | API only — codex ignores `--size` for `edit`/`compose` and returns the input's aspect |
 | Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
-| Largest sizes (4K) at high quality | API; codex's reasoning loop gets slow for large outputs |
+| Largest sizes (4K) at high quality | API; on codex, `--size` is honoured for `generate` only and its reasoning loop slows on large outputs |
 
 ## Persona note
 

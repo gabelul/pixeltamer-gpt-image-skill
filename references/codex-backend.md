@@ -130,6 +130,30 @@ Run with `--debug` to keep the codex log around. Usually means codex understood 
 **Hangs > 2 minutes**
 Codex's reasoning loop can be slow on `--reasoning high` with complex prompts. Drop to `medium` or `low`. If it consistently hangs, you may be hitting a ChatGPT rate limit — wait or switch to the API backend.
 
+## `--size` is only honoured for `generate`
+
+The Responses API takes `size` for text-to-image and drops it the moment there's an input image.
+`edit` and `compose` come back at the **input's aspect ratio**, at whatever resolution the model
+picks — around 850px on the short edge, measured on portrait inputs:
+
+| mode | requested | returned |
+|---|---|---|
+| `generate` | 1024x1536 | 1024x1536 ✅ |
+| `edit` | 2160x3840 | 852x1846 (input aspect) ❌ |
+| `compose` | 2160x3840 | 853x1844 (input aspect) ❌ |
+
+pixeltamer does send the value — this is the API's behaviour, not a dropped flag. Both subcommands
+now warn on stderr when you pass a `--size` they can't deliver.
+
+What this means in practice: **don't size a downstream crop off the number you asked for.** Read the
+actual output dimensions, or resize yourself afterwards. If you need a guaranteed output size for an
+edit, use `--backend api` — `/v1/images/edits` accepts `size` properly.
+
+Corollary worth knowing if you're building a pipeline: because edits come back small, anything you
+upscale afterwards gets softer. Text especially. If you already own the text (you composited it in
+before the edit), composite it back on *after* the upscale rather than round-tripping it through the
+model — image models re-render text rather than preserving it.
+
 ## Caveats
 
 - This uses the consumer ChatGPT subscription endpoint via `codex exec`. Programmatic use of consumer subscriptions sits in a grey area of OpenAI's terms; check before scripting heavy automated batches.

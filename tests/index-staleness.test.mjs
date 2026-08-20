@@ -24,6 +24,10 @@ function listMarkdownFiles(dir) {
   const out = [];
   if (!existsSync(dir)) return out;
   for (const entry of readdirSync(dir)) {
+    // Skip dotfiles. macOS writes AppleDouble sidecars (`._foo.md`) on non-APFS volumes —
+    // they end in .md, so a bare extension filter counts them as real reference files and
+    // fails this test for anyone whose checkout lives on an external drive.
+    if (entry.startsWith('.')) continue;
     const full = join(dir, entry);
     const stat = statSync(full);
     if (stat.isDirectory()) {
