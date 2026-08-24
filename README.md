@@ -144,7 +144,7 @@ pixeltamer generate -p "..." --size 1536x1024 --quality high -o slide.png
 # 4 variants in parallel (API only — fires 4 concurrent calls)
 pixeltamer generate -p "..." -n 4 --concurrency 4 -o variants/
 
-# transparent PNG with a real alpha channel (API backend only)
+# transparent PNG with a real alpha channel — works on both backends for generate
 # note: your prompt outranks the flag — describe a backdrop and you get one
 pixeltamer generate -p "A single brass desk key, isolated object on fully transparent alpha. No backdrop, no surface, no cast shadow." --background transparent -o key.png
 

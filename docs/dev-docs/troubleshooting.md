@@ -133,7 +133,7 @@ those are generated from the OpenAPI spec, so they don't drift the way prose doc
 
 ---
 
-## Codex can't do transparency, even though its schema accepts the field
+## Codex refuses the `background` parameter but honours the transparency prompt
 
 **Symptom:** `--background transparent` on the codex backend. `codex exec` dies with
 `unknown arg: --background`. Routing it to the OAuth Responses transport instead —
@@ -145,20 +145,72 @@ round-trip later with:
 type=image_generation_user_error  code=invalid_value  param=tools
 ```
 
-**Root cause:** Schema acceptance is not capability. The OpenAI SDK's generated types
-for the Responses `image_generation` tool list `background: transparent|opaque|auto`,
-and that's accurate about the wire format. The ChatGPT-subscription backend behind
-`codex login` rejects the value at execution. Pinning `model: gpt-image-2` in the tool
-spec doesn't change it — tried, same error.
+The obvious conclusion — "codex can't do transparency" — is wrong, and pixeltamer's
+docs shipped it for exactly one commit.
 
-**Fix:** `--background` is intercepted in the dispatcher for the codex backend and
-fails immediately with the real reason and a pointer at `--backend api`. The OAuth
-threading was written, tested against the live API, and reverted — no point shipping
-a flag that fails 100% of the time.
+**Root cause:** Two separate layers got collapsed into one claim.
 
-**Files:** `scripts/pixeltamer`, `references/transparency.md`
+- **Parameter layer:** the ChatGPT-subscription backend rejects `background` as an
+  explicit tool parameter. Pinning `model: gpt-image-2` in the tool spec doesn't
+  help — tried, same error.
+- **Prompt layer:** codex's built-in `image_gen`, driven through `codex exec`,
+  produces genuine alpha when the *prompt* asks for it. Measured across three live
+  generations:
 
-**Lesson:** Generated SDK types tell you what the API will *parse*, not what the
-backend will *do*. Two different layers, and only a live call separates them. Cost
-of finding out: one API round-trip. Cost of not: a documented feature that never
-works on the backend most subscription users default to.
+| Subject | Alpha channel | Fully transparent | Partial (soft edges) |
+|---|---|---|---|
+| Brass key (hard edges), prompt-only | RGBA | 78.0% | 1.8% |
+| Brass key, prompt naming the tool params | RGBA | 73.6% | 1.1% |
+| Smoke wisp (translucent) | RGBA | 79.9% | 19.0% |
+
+Clean cutouts in all three, including the translucent case that should have been
+hardest. Verified with two independent decoders and visual composites over magenta.
+
+**Fix:** `--background` is handled in `pixeltamer_codex.sh`'s own arg parser: it
+appends the transparency constraint block to the prompt, announces the rewrite on
+stderr, and checks the resulting PNG's IHDR colour-type byte, warning loudly if
+alpha is missing. Scoped to `generate` — `edit`/`compose` use the Responses
+transport that refuses the param, and prompt-driven alpha through an edit is
+untested, so the dispatcher refuses instead of guessing.
+
+**Files:** `scripts/pixeltamer_codex.sh`, `scripts/pixeltamer`,
+`references/transparency.md`
+
+**Lesson:** A parameter rejection proves the parameter is unsupported. It says
+nothing about the capability. Same backend, same model, same session: refused the
+field, honoured the sentence. And this is the *second* time codex turned out more
+capable than pixeltamer's docs assumed — the first was "edit is API only," fixed in
+0.3.0 (see `gallery/README.md`). When codex appears not to support something,
+assume the transport, not the model.
+
+---
+
+## Transparent PNGs carry ghost colour under the alpha
+
+**Symptom:** A verified-transparent PNG looks correct in Preview and in any
+alpha-aware tool, then shows a dark halo or a ghost of the original scene the moment
+something flattens it — a naive compositor, a game engine importer, a print pipeline.
+
+**Root cause:** Fully-transparent pixels still store RGB values. gpt-image-2 leaves
+whatever it rendered there instead of zeroing it. Measured across test generations:
+~50% of fully-transparent pixels carried non-black RGB (48.8% and 54.6% in two of
+three runs; 0% in the third — it's inconsistent, not universal).
+
+This is what makes a "good" transparent asset look broken in one downstream tool and
+fine in every other.
+
+**Fix:** Scrub RGB where alpha is zero before delivering:
+
+```bash
+magick asset.png -channel RGB -fx 'a==0?0:u' scrubbed.png
+```
+
+Documented in `references/post-process.md` and step 2b of
+`references/transparency.md`. Not automated — it's a delivery-time concern, and
+folding it into generation would mean decoding and re-encoding every PNG.
+
+**Files:** `references/post-process.md`, `references/transparency.md`
+
+**Lesson:** "Has an alpha channel" and "is a clean transparent asset" are three
+different checks apart: the channel exists, the alpha is actually used, and the RGB
+under it is scrubbed. Only the first is a header read.

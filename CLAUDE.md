@@ -98,7 +98,7 @@ The parser, verifier, and status writer are pure functions with dependency injec
 | Auth | API key | ChatGPT subscription |
 | Marginal cost | per-image | included in subscription up to limits |
 | Latency per image | ~10–20s | ~30–90s (reasoning loop) |
-| Transparent background (real alpha) | ✅ | ❌ — `codex exec` has no knob; the OAuth transport rejects it for this model |
+| Transparent background (real alpha) | ✅ param on all modes | ✅ `generate` only — no param, so the flag becomes prompt text + a post-gen alpha check |
 | Output file format (png / jpeg / webp) | ✅ | ❌ — both transports always return PNG |
 | Edit / inpaint | ✅ | ❌ |
 | Multi-reference compose | ✅ (up to 16 refs) | ❌ |

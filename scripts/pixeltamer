@@ -134,22 +134,35 @@ _detect_backend() {
 
 # --- subcommands ------------------------------------------------------------
 
-# Flags no codex transport can honour. Both hardcode PNG output, and neither can
-# do transparency: `codex exec` has no knob for it, and while the Responses API's
-# `image_generation` tool *accepts* a `background` field in its schema, the
-# ChatGPT-subscription backend rejects the value at execution time with
-# "Transparent background is not supported for this model." Verified live, 2026-08.
+# Flags no codex transport can honour. Both hardcode PNG output, so asking for
+# jpeg/webp there can only lie to you.
 #
-# Without this check the failures are useless: codex exec dies with "unknown arg:
-# --background", and the OAuth path burns a round-trip before failing. Same
-# interception pattern as `--mask` in cmd_edit.
-_die_if_api_only_flag() {
+# `--background` is deliberately NOT in this list. Codex can't take it as a
+# parameter — the OAuth Responses transport accepts the field in its schema and
+# then rejects the value ("Transparent background is not supported for this
+# model") — but codex's image_gen produces real alpha when the *prompt* asks for
+# it. So `pixeltamer_codex.sh` translates the flag into prompt text and verifies
+# the result, rather than the dispatcher refusing a capability that works.
+# `--background` works on codex for `generate` (prompt-driven, via
+# pixeltamer_codex.sh). Edit and compose take the OAuth Responses transport,
+# which refuses the parameter — and whether prompt-driven alpha survives an edit
+# is untested. Refuse rather than guess.
+_die_if_background() {
+  local mode="$1"; shift
   local arg
   for arg in "$@"; do
     case "$arg" in
       --background|--background=*)
-        _die "\`--background\` requires the API backend — codex always returns opaque PNG, and its Responses transport rejects transparency for this model. Set OPENAI_API_KEY, or pass --backend api."
+        _die "\`--background\` on codex works for \`generate\` only; \`$mode\` goes through the Responses transport, which rejects it. Use --backend api, or generate the asset transparent and composite locally."
         ;;
+    esac
+  done
+}
+
+_die_if_api_only_flag() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
       --output-format|--output-format=*|--output-compression|--output-compression=*)
         _die "\`${arg%%=*}\` requires the API backend — both codex transports always return PNG. Set OPENAI_API_KEY, or pass --backend api."
         ;;
@@ -192,6 +205,7 @@ cmd_edit() {
         _die "\`edit --mask\` requires the API backend (codex Responses API doesn't take a mask parameter). Set OPENAI_API_KEY or pass --backend api."
       fi
       _die_if_api_only_flag "$@"
+      _die_if_background "edit" "$@"
       exec python3 "$script_dir/pixeltamer_codex_oauth.py" edit "$@"
       ;;
   esac
@@ -204,6 +218,7 @@ cmd_compose() {
     api)   exec python3 "$script_dir/pixeltamer_api.py" compose "$@" ;;
     codex)
       _die_if_api_only_flag "$@"
+      _die_if_background "compose" "$@"
       exec python3 "$script_dir/pixeltamer_codex_oauth.py" compose "$@"
       ;;
   esac

@@ -104,9 +104,9 @@ Constraints: pure white background, no shadow, no glow, no texture, no gradient,
 
 ### When the asset needs to sit on a background you don't control
 
-On the API backend, generate real alpha: `--background transparent`, plus the
-constraint block from `references/transparency.md`. No keying, no fringe, no
-second pass.
+Generate real alpha: `--background transparent`, plus the constraint block from
+`references/transparency.md`. Works on both backends for `generate`. No keying,
+no fringe, no second pass.
 
 ### Green-screen variant (codex backend, or when alpha comes out dirty)
 
@@ -131,7 +131,7 @@ Then use ImageMagick or rembg to alpha-extract — see `post-process.md`.
 | Colorful illustrations, hero graphics, decorative elements | Green (#00ff00) | White-keying eats white highlights inside the subject |
 | UI screens / cards (already mostly white) | Green | White-keying destroys the subject |
 | Anything with semi-transparent shadows or soft glows | Native `--background transparent` — don't key this | Both keying methods leave artifacts on soft edges |
-| Anything at all, if you have an API key | Native `--background transparent` | The table above is the fallback path; native alpha skips it |
+| Anything at all, on either backend | Native `--background transparent` | The table above is the fallback path; native alpha skips it |
 
 ## Common UI prompt mistakes
 

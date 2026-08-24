@@ -17,7 +17,7 @@ Make/generate/draw an image, poster, illustration, mockup, icon, sticker, sprite
 | Backend | Auth | Strengths | Limits |
 |---|---|---|---|
 | `api` | `OPENAI_API_KEY` / `OPENAI_IMAGE_API_KEY` | fastest, all modes, custom hosts | per-image cost, org must be verified for gpt-image-2 |
-| `codex` | `codex login` (ChatGPT subscription) | no API key, included in plan | generate only — no edit/compose; no transparency; slower |
+| `codex` | `codex login` (ChatGPT subscription) | no API key, included in plan, transparency works on `generate` | slower; no `--output-format`; no transparency on edit/compose |
 
 Auto-detect: api if key set, else codex. Override: `--backend api|codex` or `PIXELTAMER_BACKEND` env.
 
@@ -69,13 +69,14 @@ After setup → re-run `pixeltamer doctor` → proceed with request.
 --concurrency C        max parallel HTTP (default 4)
 -i PATH                reference image (repeatable for compose)
 --mask PATH            inpaint mask (edit only); white = regenerate
---background           transparent|opaque|auto — API backend only
+--background           transparent|opaque|auto — both backends (generate only on codex)
 --output-format        png|jpeg|webp — API backend only
 --backend api|codex    override auto-detect
 ```
 
-**Transparency:** `--background transparent` gives real alpha (API only, auto-pins
-png). The prompt outranks the flag — any backdrop, surface, scene, or cast shadow
+**Transparency:** `--background transparent` gives real alpha on both backends for
+`generate` (API = param; codex = prompt injection + alpha check). Auto-pins png on
+API. Not available for codex edit/compose. The prompt outranks the flag — any backdrop, surface, scene, or cast shadow
 you describe gets painted and you get an opaque PNG with no error. Append:
 `Output an isolated object on actual fully transparent alpha. No backdrop, no
 background colour, no rectangle, no plinth, no surface, no cast shadow, no

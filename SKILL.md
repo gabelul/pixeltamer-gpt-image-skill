@@ -142,11 +142,15 @@ alpha, not a green screen you clean up afterwards:
 pixeltamer generate -p "<isolated subject>" --background transparent -o asset.png
 ```
 
-API backend only; the dispatcher will tell you so if you're on codex. The catch
-worth knowing before you write the prompt: **the prompt outranks the flag.** Any
-backdrop, surface, scene, or cast shadow you describe gets painted, and you get a
-fully-opaque PNG with no error anywhere. Load `references/transparency.md` for the
-constraint block and the verification steps.
+Works on **both backends** for `generate`. On API it's a request parameter; on
+codex it's translated into prompt instructions (codex has no background param)
+plus an automatic alpha check that warns on stderr if the PNG came back RGB.
+Codex `edit`/`compose` can't do it — the dispatcher says so.
+
+The catch worth knowing before you write the prompt: **the prompt outranks the
+flag.** Any backdrop, surface, scene, or cast shadow you describe gets painted,
+and you get a fully-opaque PNG with no error anywhere. Load
+`references/transparency.md` for the constraint block and the verification steps.
 
 ### Mode 2 — Edit / inpaint
 
@@ -260,7 +264,7 @@ Pull only what's needed for the current job. Don't dump them all.
 | "professional, beautiful, premium, stunning" | Praise language with zero instructional content. |
 | Generating before checking which backend is available | Run `pixeltamer doctor` first if it's the first call this session. |
 | Edit / compose on codex backend | Works since 0.3.0 via the OAuth Responses API (`pixeltamer_codex_oauth.py`). Mask-based inpainting still requires the API path — the Responses API doesn't take a mask parameter. So does any edit needing a specific output size: codex returns the input's aspect and ignores `--size`. |
-| Chroma-key green screens for cutout assets | Stale advice. `--background transparent` gives real alpha on the API backend. Key only when you're on codex or the edges come out dirty. |
+| Chroma-key green screens for cutout assets | Stale advice. `--background transparent` gives real alpha on **both** backends for `generate`. Key only when the edges come out dirty, or for codex `edit`/`compose`. |
 | Describing a backdrop while asking for transparency | The prompt outranks the flag. "Clean white studio" beats `--background transparent` and you get a white rectangle. |
 | Skipping visual self-verification | Image gen is stochastic. "API succeeded" ≠ "image is correct". |
 | Stacking three new clauses when one isn't working | Change one dimension at a time. You won't know what helped otherwise. |
@@ -277,7 +281,7 @@ Pull only what's needed for the current job. Don't dump them all.
 | A guaranteed output size when editing | API only — codex ignores `--size` for `edit`/`compose` and returns the input's aspect |
 | Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |
-| Transparent background / real alpha channel | API only — `codex exec` has no background control, and the OAuth transport rejects transparency for this model |
+| Transparent background / real alpha channel | Both, for `generate` — API takes it as a param, codex via prompt + verification. Codex `edit`/`compose`: API only |
 | A specific output file format (png / jpeg / webp) | API only via `--output-format` — both codex transports always return PNG |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
 | Largest sizes (4K) at high quality | API; on codex, `--size` is honoured for `generate` only and its reasoning loop slows on large outputs |

@@ -89,8 +89,24 @@ magick image.jpg -strip out.jpg
 ## Make a transparent background
 
 First question: did you actually ask for one? gpt-image-2 emits real alpha via
-`--background transparent` on the API backend. Regenerating with the right flag
-beats post-hoc removal every time — see `references/transparency.md`.
+`--background transparent` on **both** backends for `generate`. Regenerating with
+the right flag beats post-hoc removal every time — see `references/transparency.md`.
+
+### Scrub the RGB under transparent pixels
+
+Fully-transparent pixels still carry colour, and gpt-image-2 routinely leaves a
+ghost of the scene there — measured at ~50% of transparent pixels across test
+generations. Alpha-aware viewers hide it; naive flatteners show it as a halo.
+
+```bash
+# Detect: non-zero mean means transparent pixels are carrying colour
+magick asset.png -alpha extract -negate -write MPR:m -delete 0 \
+  asset.png MPR:m -compose multiply -composite -format "%[fx:mean]\n" info:
+
+# Fix
+magick asset.png -channel RGB -fx 'a==0?0:u' scrubbed.png
+```
+
 
 Everything below is for when that isn't available (codex backend), or when the
 source is an image you didn't generate:

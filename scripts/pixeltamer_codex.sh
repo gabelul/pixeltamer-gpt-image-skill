@@ -55,6 +55,7 @@ quality="auto"
 count=1
 reasoning="medium"
 debug=0
+background=""
 images=()
 
 while [[ $# -gt 0 ]]; do
@@ -66,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     -n|--count)     count="${2:-}"; shift 2 ;;
     -i|--image)     images+=("${2:-}"); shift 2 ;;
     --reasoning)    reasoning="${2:-}"; shift 2 ;;
+    --background)   background="${2:-}"; shift 2 ;;
     --debug)        debug=1; shift ;;
     -h|--help)      usage ;;
     *)              echo "$prog: unknown arg: $1" >&2; usage ;;
@@ -73,6 +75,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$prompt" ]] && { echo "$prog: --prompt required" >&2; usage; }
+case "$background" in
+  ""|transparent|opaque|auto) ;;
+  *) echo "$prog: --background must be transparent, opaque or auto" >&2; usage ;;
+esac
 [[ -z "$out" ]] && { echo "$prog: --out required" >&2; usage; }
 [[ "$count" =~ ^[0-9]+$ ]] || { echo "$prog: -n must be a positive integer" >&2; usage; }
 (( count >= 1 && count <= 10 )) || { echo "$prog: -n must be 1-10" >&2; usage; }
@@ -284,6 +290,52 @@ fi
 for fp in "${final_paths[@]}"; do
   [[ -d "$fp" ]] && { echo "$prog: output path is a directory: $fp" >&2; exit 2; }
 done
+
+# --- transparency -------------------------------------------------------------
+
+# Codex has no `background` parameter to set. What it DOES have is a model that
+# produces a real alpha channel when the prompt asks for one — verified: a
+# prompt-only request came back RGBA, 78% fully transparent, clean cutout.
+#
+# (Worth knowing why this isn't done the obvious way: the OAuth Responses
+# transport accepts a `background` field in its schema and then rejects the
+# value — "Transparent background is not supported for this model." The
+# parameter is refused; the prompt is honoured. Two different layers.)
+#
+# So `--background transparent` here rewrites the prompt instead of setting a
+# flag. That mutation is announced on stderr — silently editing someone's prompt
+# is not a thing this script should do quietly.
+TRANSPARENCY_CLAUSE="Output the subject as an isolated element on a fully transparent background with a real PNG alpha channel. No backdrop, no background colour, no rectangle, no plinth, no surface, no cast shadow, no vignette, no watermark. Crisp alpha edges, no halo, no matte fringe."
+
+_apply_background_to_prompt() {
+  case "$background" in
+    transparent)
+      prompt="$prompt
+
+$TRANSPARENCY_CLAUSE"
+      echo "$prog: note — codex has no background parameter, so --background transparent appends transparency instructions to your prompt instead. Anything in the prompt describing a backdrop, surface or cast shadow will override it." >&2
+      ;;
+    opaque)
+      # Nothing to do — opaque is what codex returns by default.
+      ;;
+  esac
+}
+
+_apply_background_to_prompt
+
+# Post-generation gate. Prompt-driven transparency is a request, not a contract,
+# so check the PNG's IHDR colour-type byte (offset 25, bit 2 = alpha) and say so
+# loudly when it came back RGB. Same header check the batch verifier uses.
+_warn_if_no_alpha() {
+  [[ "$background" == "transparent" ]] || return 0
+  local f="$1" ctype
+  [[ -f "$f" ]] || return 0
+  ctype="$(od -An -tu1 -j25 -N1 "$f" 2>/dev/null | tr -d ' ')"
+  [[ -n "$ctype" ]] || return 0
+  if (( (ctype & 4) == 0 )); then
+    echo "$prog: WARNING — you asked for transparency but $f has no alpha channel (PNG colour type $ctype). The prompt probably described a backdrop. Re-read it, or fall back to a chroma-key matte (see references/transparency.md)." >&2
+  fi
+}
 
 # --- prompt builders ---------------------------------------------------------
 
@@ -506,6 +558,9 @@ else
     exit 1
   fi
 fi
+
+# Transparency is prompt-driven here, so verify rather than assume.
+for p in "${final_paths[@]}"; do _warn_if_no_alpha "$p"; done
 
 # stdout stays a clean list of the final paths for callers; status to stderr.
 for p in "${final_paths[@]}"; do echo "$p"; done

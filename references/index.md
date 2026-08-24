@@ -55,7 +55,7 @@ For questions our docs don't cover. These are stable, public, and worth checking
 
 When the request is genuinely ambiguous between two recipes:
 
-- **Transparency vs chroma-key**: are you on the API backend? Then `references/transparency.md` — native alpha, first try. Codex backend, or a subject the model won't cut cleanly? Then the green-screen patterns in `ui-mockup-prompting.md` + `post-process.md`.
+- **Transparency vs chroma-key**: `references/transparency.md` first — native alpha works on both backends for `generate`. Fall back to the green-screen patterns in `ui-mockup-prompting.md` + `post-process.md` only for codex `edit`/`compose`, or a subject the model won't cut cleanly (fine hair, fur, lace).
 - **Mascot vs editorial-cover**: is the *character* the deliverable, or is the *cover layout* the deliverable? Character → `mascot.md`. Cover → `editorial-cover.md`.
 - **Infographic vs ui-mockup**: is it data + framework + concept, or is it interface + screen content? Data → `infographic.md`. Interface → `ui-mockup.md`.
 - **Editorial-cover vs typography-posters**: is the hero an image with type overlay, or is the type itself the hero with no/minimal image? Image-led → `editorial-cover.md`. Type-led → `playbook/typography-posters.md`.

@@ -14,7 +14,9 @@ pixeltamer generate \
   -o asset.png
 ```
 
-`--output-format` is pinned to `png` automatically when you ask for transparency, because that's what alpha needs. Pass `--output-format webp` if you want it; pass `jpeg` and you get an error instead of a silently opaque image, because JPEG has no alpha channel and never has.
+Works on both backends for `generate`. On the API backend it's a request parameter; on codex it becomes prompt instructions plus a post-generation alpha check (see Backend reality below).
+
+`--output-format` is API-only and pins to `png` automatically when you ask for transparency, because that's what alpha needs. Pass `--output-format webp` if you want it; pass `jpeg` and you get an error instead of a silently opaque image, because JPEG has no alpha channel and never has.
 
 ## The rule that decides whether this works
 
@@ -90,6 +92,19 @@ magick asset.png -alpha extract -format "%[fx:100*mean]\n" info:
 
 A number near 100 means "almost entirely opaque", which means the model painted a backdrop and you should reread your prompt for the word that caused it.
 
+**2b. Is the RGB under the transparent pixels scrubbed?**
+
+Fully-transparent pixels still store colour. gpt-image-2 sometimes leaves a ghost of the scene there — invisible in any alpha-aware viewer, and suddenly visible the moment something flattens the image naively (some game engines, print pipelines, older canvas code).
+
+```bash
+# Non-zero output means transparent pixels are carrying colour
+magick asset.png -alpha extract -negate -write MPR:m -delete 0 \
+  asset.png MPR:m -compose multiply -composite -format "%[fx:mean]\n" info:
+
+# Scrub it
+magick asset.png -channel RGB -fx 'a==0?0:u' scrubbed.png
+```
+
 **3. Does it look right composited?**
 
 Drop it on a mid-grey and a dark background and `Read` both. Halos, matte fringes, and leftover backdrop crumbs are invisible against white and obvious against grey.
@@ -101,16 +116,28 @@ magick asset.png -background "#12141a" -alpha remove -alpha off check-dark.png
 
 ## Backend reality
 
-**API backend only.** Both codex transports return opaque PNG:
+Both backends can do this, but they get there differently — and the difference decides how much you verify.
 
-- `codex exec` (the CLI wrapper) drives codex's built-in image_gen tool, which has no background control at all.
-- The OAuth Responses path *accepts* a `background` field in its schema, then rejects the value at execution: `Transparent background is not supported for this model.` Verified live, August 2026.
+**API backend** — `background=transparent` is a real request parameter. Ask, receive.
 
-The dispatcher catches `--background` on codex and tells you this rather than letting either transport fail obscurely. If you're on a ChatGPT subscription and need alpha, the honest options are an API key or the chroma-key fallback below.
+**Codex backend** — no parameter, but the model produces genuine alpha when the *prompt* asks for one. `--background transparent` appends the constraint block to your prompt and then checks the result, warning on stderr if the PNG came back RGB. It announces the rewrite so you're not wondering why your prompt grew.
+
+The distinction that took a live test to find: the OAuth Responses transport *accepts* a `background` field in its schema and then refuses the value — `Transparent background is not supported for this model.` The parameter is rejected; the prompt is honoured. Don't read the first fact as "codex can't do transparency," which is what pixeltamer's own docs said until August 2026.
+
+Codex scope: **`generate` only.** `edit` and `compose` go through that same Responses transport, which refuses the parameter, and whether prompt-driven alpha survives an edit is untested. The dispatcher refuses rather than guessing.
+
+| | API | Codex |
+|---|---|---|
+| Mechanism | `background` request param | prompt instructions |
+| Modes | generate, edit, compose | generate only |
+| Reliability | deterministic | stochastic — verify every time |
+| `--output-format` | png / jpeg / webp | always PNG |
 
 ## The chroma-key fallback (still useful, no longer the default)
 
-Green-screen-then-key was the old way and it still earns its place in two situations: you're on the codex backend, or you're keying a subject where the model refuses to give clean alpha no matter how you phrase the constraints.
+Green-screen-then-key is no longer the default on either backend, but it still earns its place: a subject the model won't cut cleanly no matter how you phrase the constraints (fine hair, fur, lace, chains), or a codex `edit`/`compose` where the flag isn't available.
+
+For genuinely translucent subjects — glass, liquid, glow, smoke — the strongest technique is dual-background extraction: render the same subject on pure black and pure white, then solve for alpha from the difference. It preserves partial transparency that chroma-keying flattens.
 
 Full patterns live in `ui-mockup-prompting.md` (which background colour for which subject) and `post-process.md` (the ImageMagick and rembg one-liners). Reach for them second, not first.
 
@@ -156,4 +183,5 @@ Ask for generous padding around the subject in every case. Cropping in is trivia
 | Shadow baked onto an invisible floor | Asked for a drop shadow | Drop it from the prompt; add the shadow at composite time |
 | Halo or fringe on soft edges | Model hedged the alpha ramp | Add `crisp alpha edges, no halo, no matte fringe`; re-roll |
 | Chart on a white card | Chart layouts default to a card | Add the explicit plot-area transparency clause |
-| `--background transparent` errors out | You're on the codex backend | Use an API key, or fall back to chroma-key |
+| `--background transparent` errors out on edit/compose | Codex backend — those modes use the Responses transport, which refuses the param | Use `--backend api`, or generate transparent and composite locally |
+| Transparent pixels carry ghost colour when flattened | RGB under alpha=0 wasn't scrubbed; naive flatteners show it | Scrub it — see `post-process.md` |
