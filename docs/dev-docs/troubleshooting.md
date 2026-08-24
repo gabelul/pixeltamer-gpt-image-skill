@@ -192,9 +192,13 @@ alpha-aware tool, then shows a dark halo or a ghost of the original scene the mo
 something flattens it — a naive compositor, a game engine importer, a print pipeline.
 
 **Root cause:** Fully-transparent pixels still store RGB values. gpt-image-2 leaves
-whatever it rendered there instead of zeroing it. Measured across test generations:
-~50% of fully-transparent pixels carried non-black RGB (48.8% and 54.6% in two of
-three runs; 0% in the third — it's inconsistent, not universal).
+whatever it rendered there instead of zeroing it. Measured across four codex
+generations, as a share of *fully-transparent* pixels: 62.4%, 68.3%, 87.5%, and
+0.0%. So it's the norm rather than the exception, but not universal — which is
+exactly what makes it easy to miss.
+
+(An earlier version of this entry said "~50%". That number divided by *all* pixels
+rather than transparent ones, which understated it. Denominators matter.)
 
 This is what makes a "good" transparent asset look broken in one downstream tool and
 fine in every other.

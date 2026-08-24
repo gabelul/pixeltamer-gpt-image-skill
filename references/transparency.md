@@ -127,7 +127,7 @@ Roughly 30–85% is normal depending on how much padding you asked for — measu
 
 **2b. Is the RGB under the transparent pixels scrubbed?**
 
-Fully-transparent pixels still store colour. gpt-image-2 sometimes leaves a ghost of the scene there — invisible in any alpha-aware viewer, and suddenly visible the moment something flattens the image naively (some game engines, print pipelines, older canvas code).
+Fully-transparent pixels still store colour. gpt-image-2 usually leaves a ghost of the scene there — invisible in any alpha-aware viewer, and suddenly visible the moment something flattens the image naively (some game engines, print pipelines, older canvas code). Measured across our codex generations: 62%, 68% and 87% of transparent pixels carried non-black RGB; one run out of four came back clean. Treat scrubbing as a delivery step, not an occasional fix.
 
 ```bash
 # Non-zero output means transparent pixels are carrying colour

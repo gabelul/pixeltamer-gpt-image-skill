@@ -109,8 +109,9 @@ trimmed = image.crop(bounds) if bounds else None
 ### Scrub the RGB under transparent pixels
 
 Fully-transparent pixels still carry colour, and gpt-image-2 routinely leaves a
-ghost of the scene there — measured at ~50% of transparent pixels across test
-generations. Alpha-aware viewers hide it; naive flatteners show it as a halo.
+ghost of the scene there — measured at 62%, 68% and 87% of transparent pixels
+across four test generations (one came back clean). Alpha-aware viewers hide it;
+naive flatteners show it as a halo.
 
 ```bash
 # Detect: non-zero mean means transparent pixels are carrying colour
