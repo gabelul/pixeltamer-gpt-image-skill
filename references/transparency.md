@@ -1,6 +1,6 @@
 # Transparency — real alpha, not a green screen you clean up later
 
-gpt-image-2 will hand you a genuine alpha channel. `--background transparent`, API backend, done. Every chroma-key trick in this repo predates that and is now the fallback, not the plan.
+gpt-image-2 will hand you a genuine alpha channel. `--background transparent`, either backend, done. Every chroma-key trick in this repo predates that and is now the fallback, not the plan.
 
 Read this before generating any asset that gets composited onto something else: icons, logos, mascots, product cutouts, chart layers, sticker packs, anything meant to sit on a background you don't control.
 
@@ -119,11 +119,11 @@ Batch mode does this for you — any entry whose `Format` field contains `transp
 This is the one that catches the real failure. An opaque-everywhere alpha channel passes check 1 and is completely useless.
 
 ```bash
-# % of fully transparent pixels — expect 30–70% for a typical centred asset
+# % of fully transparent pixels
 magick asset.png -alpha extract -format "%[fx:100*mean]\n" info:
 ```
 
-A number near 100 means "almost entirely opaque", which means the model painted a backdrop and you should reread your prompt for the word that caused it.
+Roughly 30–85% is normal depending on how much padding you asked for — measured across our own test generations: 51.6%, 73.6%, 78.0%, 79.9%. A number near 100 means "almost entirely opaque", which means the model painted a backdrop and you should reread your prompt for the word that caused it. A number near 0 means it produced nothing.
 
 **2b. Is the RGB under the transparent pixels scrubbed?**
 
