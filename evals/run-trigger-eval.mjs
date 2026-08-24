@@ -55,6 +55,13 @@ function parseArgs(argv) {
     onlyTrigger: argv.includes('--only-trigger'),
     maxCost: get('--max-cost', Infinity),
     turns: get('--turns', 3),
+    // plan mode keeps the eval from spending real generation calls, but it
+    // biases the agent toward exploring instead of acting — which suppresses
+    // exactly the Skill call we're measuring. Treat plan-mode numbers as a
+    // lower bound and re-run with --permission-mode default to confirm a miss.
+    permissionMode: argv.includes('--permission-mode')
+      ? String(argv[argv.indexOf('--permission-mode') + 1])
+      : 'plan',
   };
 }
 
@@ -68,14 +75,14 @@ function parseArgs(argv) {
  * @param {number} turns - max agent turns before we cut it off
  * @returns {Promise<{tools:Array<{name:string,input:object}>, cost:number, error:string|null}>}
  */
-function runQuery(query, turns) {
+function runQuery(query, turns, permissionMode) {
   return new Promise((done) => {
     const proc = spawn('claude', [
       '-p', query,
       '--output-format', 'stream-json',
       '--verbose',
       '--max-turns', String(turns),
-      '--permission-mode', 'plan',
+      '--permission-mode', permissionMode,
     ], { cwd: '/tmp' });
 
     const tools = [];
@@ -126,7 +133,11 @@ let cases = suite.cases;
 if (opts.onlyTrigger) cases = cases.filter((c) => c.should_trigger);
 cases = cases.slice(0, opts.limit);
 
-console.log(`pixeltamer trigger eval — ${cases.length} case(s), max ${opts.turns} turns each`);
+console.log(`pixeltamer trigger eval — ${cases.length} case(s), max ${opts.turns} turns, ${opts.permissionMode} mode`);
+if (opts.permissionMode === 'plan') {
+  console.log('NOTE: plan mode biases toward exploration over action, which suppresses Skill calls.');
+  console.log('      Misses here are a lower bound — confirm with --permission-mode default.');
+}
 console.log('Costs real money. Ctrl-C is right there.\n');
 
 const results = [];
@@ -138,7 +149,7 @@ for (const [i, c] of cases.entries()) {
     break;
   }
   process.stdout.write(`[${i + 1}/${cases.length}] ${c.query.slice(0, 62)}… `);
-  const { tools, cost, error } = await runQuery(c.query, opts.turns);
+  const { tools, cost, error } = await runQuery(c.query, opts.turns, opts.permissionMode);
   spent += cost;
 
   const { triggered, readDoctrine } = score(tools);
@@ -147,7 +158,14 @@ for (const [i, c] of cases.entries()) {
   const routingOk = !c.should_trigger || !triggered ? null
     : (c.expect_routing ? readDoctrine !== null : true);
 
-  results.push({ ...c, triggered, triggerOk, readDoctrine, routingOk, cost, error, tools: tools.map(t => t.name) });
+  // Keep a truncated trace, not just names. "Bash, Bash, Bash" tells you the
+  // skill didn't fire; it doesn't tell you what the agent did instead — which is
+  // the whole diagnosis when a trigger misses.
+  const trace = tools.map((t) => ({
+    tool: t.name,
+    arg: String(t.input.command ?? t.input.file_path ?? t.input.skill ?? JSON.stringify(t.input)).slice(0, 120),
+  }));
+  results.push({ ...c, triggered, triggerOk, readDoctrine, routingOk, cost, error, trace });
 
   const mark = triggerOk ? 'PASS' : 'FAIL';
   const routeNote = routingOk === null ? ''
