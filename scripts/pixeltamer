@@ -134,6 +134,29 @@ _detect_backend() {
 
 # --- subcommands ------------------------------------------------------------
 
+# Flags no codex transport can honour. Both hardcode PNG output, and neither can
+# do transparency: `codex exec` has no knob for it, and while the Responses API's
+# `image_generation` tool *accepts* a `background` field in its schema, the
+# ChatGPT-subscription backend rejects the value at execution time with
+# "Transparent background is not supported for this model." Verified live, 2026-08.
+#
+# Without this check the failures are useless: codex exec dies with "unknown arg:
+# --background", and the OAuth path burns a round-trip before failing. Same
+# interception pattern as `--mask` in cmd_edit.
+_die_if_api_only_flag() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --background|--background=*)
+        _die "\`--background\` requires the API backend — codex always returns opaque PNG, and its Responses transport rejects transparency for this model. Set OPENAI_API_KEY, or pass --backend api."
+        ;;
+      --output-format|--output-format=*|--output-compression|--output-compression=*)
+        _die "\`${arg%%=*}\` requires the API backend — both codex transports always return PNG. Set OPENAI_API_KEY, or pass --backend api."
+        ;;
+    esac
+  done
+}
+
 cmd_generate() {
   local backend
   backend="$(_detect_backend)"
@@ -141,7 +164,10 @@ cmd_generate() {
     api)   exec python3 "$script_dir/pixeltamer_api.py" generate "$@" ;;
     # Invoke via `bash` (not direct exec) so a +x bit stripped by the skills CLI
     # copy can't break codex generation — matches how the py/node helpers run.
-    codex) exec bash "$script_dir/pixeltamer_codex.sh" "$@" ;;
+    codex)
+      _die_if_api_only_flag "$@"
+      exec bash "$script_dir/pixeltamer_codex.sh" "$@"
+      ;;
   esac
 }
 
@@ -165,6 +191,7 @@ cmd_edit() {
       if (( has_mask == 1 )); then
         _die "\`edit --mask\` requires the API backend (codex Responses API doesn't take a mask parameter). Set OPENAI_API_KEY or pass --backend api."
       fi
+      _die_if_api_only_flag "$@"
       exec python3 "$script_dir/pixeltamer_codex_oauth.py" edit "$@"
       ;;
   esac
@@ -175,7 +202,10 @@ cmd_compose() {
   backend="$(_detect_backend)"
   case "$backend" in
     api)   exec python3 "$script_dir/pixeltamer_api.py" compose "$@" ;;
-    codex) exec python3 "$script_dir/pixeltamer_codex_oauth.py" compose "$@" ;;
+    codex)
+      _die_if_api_only_flag "$@"
+      exec python3 "$script_dir/pixeltamer_codex_oauth.py" compose "$@"
+      ;;
   esac
 }
 
@@ -437,7 +467,7 @@ case "${1:-}" in
     shift
     cmd_doctor "$@"
     ;;
-  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--format|--moderation|--user|--concurrency|--model|--mask)
+  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--format|--moderation|--user|--concurrency|--model|--mask)
     # Bare flags = implicit `generate`.
     cmd_generate "$@"
     ;;

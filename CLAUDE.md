@@ -20,12 +20,13 @@ scripts/
     parse-prompts.mjs                — parser for prompts.md state-machine format
     verify-entry.mjs                 — per-entry checks: file exists, dimensions, size, format
     write-status.mjs                 — surgical status field updater for prompts.md
-    image-dimensions.mjs             — zero-dep PNG/JPEG header reader (replaced the image-size npm dep)
+    image-dimensions.mjs             — zero-dep PNG/JPEG header + alpha-channel reader (replaced the image-size npm dep)
 references/
   prompting.md                       — the doctrine. Canonical structure, what NOT to say.
   api-backend.md                     — API specifics, env vars, troubleshooting
   codex-backend.md                   — codex CLI specifics, both invocation patterns
   multi-reference.md                 — compose mode mastery, labeling patterns
+  transparency.md                    — native alpha, prompt rules, verification, compositing
   post-process.md                    — compress, resize, convert, alpha-extract one-liners
   ui-mockup-prompting.md             — UI dialect: analogy vs inventory, real data, asset rules
 recipes/
@@ -36,14 +37,14 @@ recipes/
   editorial-cover.md
   product-photo.md
 examples/                            — 4 curated demonstration PNGs
-tests/                               — 39 unit tests covering parser, verifier, status writer, image-dimension reader
+tests/                               — 53 unit tests covering parser, verifier, status writer, image-dimension + alpha reader
 ```
 
 ## How the skill works
 
 1. Identify mode (generate / edit / compose / batch) from the request.
 2. Pick a recipe if one fits (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo). Recipes are loaded on demand — they're not in the SKILL.md context by default.
-3. Load the relevant reference docs on demand. `prompting.md` for any non-trivial prompt; `multi-reference.md` for compose; `ui-mockup-prompting.md` for UI work.
+3. Load the relevant reference docs on demand. `prompting.md` for any non-trivial prompt; `multi-reference.md` for compose; `ui-mockup-prompting.md` for UI work; `transparency.md` for anything needing a real alpha channel.
 4. Resolve unspecified params: pick a sensible size (table in `prompting.md`), default `--quality high`, pick the backend (auto-detect API → codex).
 5. Build the prompt using the canonical structure: Intent → Scene → Subject → Details → Text → Style → Constraints. Drop magic words. Quote every character that should appear. On edits, specify what to preserve.
 6. Call the right `pixeltamer` subcommand. The script prints the absolute path on stdout.
@@ -82,8 +83,9 @@ For projects that need 4+ related images generated together with verification, `
 1. **prompts.md** is a markdown file with one entry per image:
    - heading: `## N. <relative-target-path>`
    - fields: `- **Format:** PNG/JPG/PNG transparent`, `- **Native size:** WxH`, `- **Reference to attach:** path` (optional), `- **Status:** pending/verified/failed:reason`
+   - `PNG transparent` is load-bearing: the verifier then requires a real alpha channel, and the entry must be generated with `--background transparent`
    - prompt: `- **Prompt:**` followed by `> ...` quote-block lines
-2. **Verify** with `verify-images.mjs`: parses, checks each `pending` or `failed` entry (file exists, dimensions match exactly, file size in [10 KB, 10 MB], extension matches format), writes status updates back into the file.
+2. **Verify** with `verify-images.mjs`: parses, checks each `pending` or `failed` entry (file exists, dimensions match exactly, file size in [10 KB, 10 MB], extension matches format, and — for `transparent` formats — the PNG declares an alpha channel), writes status updates back into the file.
 3. **Visual self-review** by Claude — `Read` each newly-verified PNG, judge subject/style/artifacts, demote to `failed:<reason>` if mismatched.
 4. **Re-generate** only the failed entries.
 
@@ -96,6 +98,8 @@ The parser, verifier, and status writer are pure functions with dependency injec
 | Auth | API key | ChatGPT subscription |
 | Marginal cost | per-image | included in subscription up to limits |
 | Latency per image | ~10–20s | ~30–90s (reasoning loop) |
+| Transparent background (real alpha) | ✅ | ❌ — `codex exec` has no knob; the OAuth transport rejects it for this model |
+| Output file format (png / jpeg / webp) | ✅ | ❌ — both transports always return PNG |
 | Edit / inpaint | ✅ | ❌ |
 | Multi-reference compose | ✅ (up to 16 refs) | ❌ |
 | Mask / region edit | ✅ | ❌ |
@@ -108,13 +112,14 @@ The parser, verifier, and status writer are pure functions with dependency injec
 npm test
 ```
 
-Runs the 39-test suite via Node's built-in `node:test`. Coverage:
+Runs the 53-test suite via Node's built-in `node:test`. Coverage:
 
 - Parser: heading detection, field extraction, multi-line prompt parsing, CRLF normalization, invalid heading rejection.
-- Verifier: PNG/JPG passes, file-not-found, size bounds, extension mismatch, dimension mismatch, dimension-read failure, format unrecognized, size unparseable.
+- Verifier: PNG/JPG passes, file-not-found, size bounds, extension mismatch, dimension mismatch, dimension-read failure, format unrecognized, size unparseable, alpha gate (present / absent / unreadable / not requested / injector omitted).
 - Status writer: single + multi-entry updates, prompt preservation, heading preservation, no-op on missing index, failed→verified demotion.
 
 - Image dimensions: PNG IHDR read, JPEG SOF read, restart-marker skip, non-image/empty → null, a real example PNG, and an injected reader that throws → null.
+- Alpha channel: PNG colour types 6 and 4 → true, 2 and 0 → false, JPEG / truncated / empty → null, throwing reader → null, real example PNG.
 
 Tests lean on dependency injection (the size reader, fs, GitHub/npm lookups are all injectable), so almost nothing touches disk or the network — the one exception is a single real example PNG for the dimension reader.
 

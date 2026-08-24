@@ -144,6 +144,10 @@ pixeltamer generate -p "..." --size 1536x1024 --quality high -o slide.png
 # 4 variants in parallel (API only — fires 4 concurrent calls)
 pixeltamer generate -p "..." -n 4 --concurrency 4 -o variants/
 
+# transparent PNG with a real alpha channel (API backend only)
+# note: your prompt outranks the flag — describe a backdrop and you get one
+pixeltamer generate -p "A single brass desk key, isolated object on fully transparent alpha. No backdrop, no surface, no cast shadow." --background transparent -o key.png
+
 # edit / inpaint a single image — works on both backends
 # (API uses /v1/images/edits; codex uses the OAuth Responses API, no key needed)
 pixeltamer edit -i source.png -p "Change ONLY the sky to overcast. Preserve everything else exactly." -o edited.png

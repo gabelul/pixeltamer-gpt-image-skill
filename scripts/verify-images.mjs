@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
-import { readImageDimensions } from './lib/image-dimensions.mjs';
+import { readImageDimensions, readHasAlphaChannel } from './lib/image-dimensions.mjs';
 import { parsePromptsFile } from './lib/parse-prompts.mjs';
 import { verifyEntry } from './lib/verify-entry.mjs';
 import { writeStatusUpdates } from './lib/write-status.mjs';
@@ -40,6 +40,7 @@ function main() {
   // Zero-dep PNG/JPEG header reader; returns null on anything it can't read,
   // which verifyEntry surfaces as "unable to read image dimensions".
   const getDimensions = (path) => readImageDimensions(path);
+  const getHasAlpha = (path) => readHasAlphaChannel(path);
 
   const updates = new Map();
   let toVerify = 0;
@@ -53,7 +54,7 @@ function main() {
       continue;
     }
     toVerify++;
-    const result = verifyEntry(entry, projectRoot, { fs, getDimensions });
+    const result = verifyEntry(entry, projectRoot, { fs, getDimensions, getHasAlpha });
     if (result.ok) {
       updates.set(entry.index, 'verified');
       passed++;

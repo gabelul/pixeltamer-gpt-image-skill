@@ -85,6 +85,27 @@ Built into `_send`. Retries 4 times on `429` (rate limit) and `5xx` errors with 
 
 If a `403` comes back, pixeltamer adds a hint pointing at https://platform.openai.com/settings/organization/general — the most common cause is "your org isn't verified for gpt-image-2 yet."
 
+## Transparency and output format
+
+```bash
+pixeltamer generate -p "<isolated subject>" --background transparent -o icon.png
+pixeltamer generate -p "..." --output-format webp --output-compression 85 -o hero.webp
+```
+
+| Flag | Values | Notes |
+|---|---|---|
+| `--background` | `transparent` \| `opaque` \| `auto` | Preview status on gpt-image-2. Auto-pins `--output-format png` |
+| `--output-format` | `png` \| `jpeg` \| `webp` | Maps to the API's `output_format`. gpt-image models only |
+| `--output-compression` | `0`–`100` | jpeg / webp only; ignored for png |
+| `--format` | `url` \| `b64_json` | **Legacy.** Maps to `response_format`, which gpt-image models ignore — they always return base64. Kept only because OpenAI-compatible proxies may still honour it |
+
+`--background transparent --output-format jpeg` is rejected up front rather than
+sent: JPEG has no alpha channel, so the API would happily return an opaque image
+and no error. Same guard fires if `-o` ends in `.jpg` while the format is PNG.
+
+See `references/transparency.md` for the prompt rules — the flag alone doesn't
+guarantee alpha, since prompt text describing a backdrop overrides it.
+
 ## Output
 
 Pixeltamer prints **absolute paths**, one per line, on stdout. Errors go to stderr. So you can pipe:
@@ -103,6 +124,8 @@ pixeltamer generate -p "..." -n 4 | head -1  # grab the first
 | `HTTP 429` | Rate limit | Pixeltamer retries automatically; if it surfaces, your account hit a hard cap |
 | `HTTP 400 — invalid size` | Out-of-range WxH | Stay under 3840px max edge, multiples of 16, ≤3:1 ratio |
 | Empty `data` array | Content moderation rejected | Rephrase, drop sensitive elements |
+| Opaque PNG despite `--background transparent` | Prompt described a backdrop / scene / cast shadow — prompt text outranks the flag | Strip environment words, add the constraint block from `references/transparency.md` |
+| `HTTP 400` mentioning `background` | Org or model doesn't have transparency enabled (it's preview on gpt-image-2) | Fall back to chroma-key + `post-process.md` |
 | Timeout (10 min default) | Very large size + high quality | Drop to `--quality medium` while iterating |
 
 ## Env file loading

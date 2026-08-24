@@ -1,8 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseDimensions, readImageDimensions } from '../scripts/lib/image-dimensions.mjs';
+import {
+  parseDimensions,
+  readImageDimensions,
+  parseHasAlphaChannel,
+  readHasAlphaChannel,
+} from '../scripts/lib/image-dimensions.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const examplesDir = resolve(here, '..', 'examples');
@@ -74,4 +80,61 @@ test('readImageDimensions reads a real example PNG', () => {
 test('readImageDimensions returns null when the file cannot be read', () => {
   const throwingReader = () => { throw new Error('ENOENT'); };
   assert.equal(readImageDimensions('/no/such/file.png', throwingReader), null);
+});
+
+// --- alpha channel (PNG colour type) ---
+
+// Build a minimal PNG header with a given IHDR colour type. Offsets: signature
+// 0-7, chunk length + "IHDR" 8-15, width 16-19, height 20-23, bit depth 24,
+// colour type 25.
+function pngWithColorType(colorType) {
+  const buf = Buffer.alloc(26);
+  buf.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+  buf.writeUInt32BE(1024, 16);
+  buf.writeUInt32BE(1024, 20);
+  buf[24] = 8;
+  buf[25] = colorType;
+  return buf;
+}
+
+test('parseHasAlphaChannel is true for RGBA (colour type 6)', () => {
+  assert.equal(parseHasAlphaChannel(pngWithColorType(6)), true);
+});
+
+test('parseHasAlphaChannel is true for grayscale+alpha (colour type 4)', () => {
+  assert.equal(parseHasAlphaChannel(pngWithColorType(4)), true);
+});
+
+test('parseHasAlphaChannel is false for plain RGB (colour type 2)', () => {
+  assert.equal(parseHasAlphaChannel(pngWithColorType(2)), false);
+});
+
+test('parseHasAlphaChannel is false for grayscale (colour type 0)', () => {
+  assert.equal(parseHasAlphaChannel(pngWithColorType(0)), false);
+});
+
+test('parseHasAlphaChannel is null for a JPEG', () => {
+  assert.equal(parseHasAlphaChannel(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])), null);
+});
+
+test('parseHasAlphaChannel is null for a PNG truncated before the colour-type byte', () => {
+  assert.equal(parseHasAlphaChannel(pngWithColorType(6).subarray(0, 25)), null);
+});
+
+test('parseHasAlphaChannel is null for empty input', () => {
+  assert.equal(parseHasAlphaChannel(Buffer.alloc(0)), null);
+});
+
+test('readHasAlphaChannel returns null when the reader throws', () => {
+  const boom = () => { throw new Error('nope'); };
+  assert.equal(readHasAlphaChannel('/nowhere.png', boom), null);
+});
+
+test('readHasAlphaChannel reads a real example PNG', () => {
+  const png = readdirSync(examplesDir).find((f) => f.endsWith('.png'));
+  assert.ok(png, 'expected at least one example PNG');
+  // Value depends on the fixture; assert only that it resolves to a boolean,
+  // i.e. the file parsed as a PNG rather than falling through to null.
+  assert.equal(typeof readHasAlphaChannel(resolve(examplesDir, png)), 'boolean');
 });

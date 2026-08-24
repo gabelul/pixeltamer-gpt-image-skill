@@ -100,3 +100,65 @@ in". Classic positive-match-on-a-negative-string.
 
 **Lesson:** When a status string can be negated by a prefix, match the negative
 form first — substring checks don't understand "not".
+
+---
+
+## `--format` was wired to the wrong API parameter, so output format was unreachable
+
+**Symptom:** No way to ask gpt-image-2 for a specific file format. `--format` only
+accepted `url` / `b64_json` and appeared to do nothing.
+
+**Root cause:** `--format` was mapped to `response_format` — the DALL·E-era param
+that chooses how the *response* carries the image. OpenAI's spec is explicit that
+gpt-image models ignore it entirely; they always return base64. The param that
+actually picks the file format is `output_format` (`png` / `jpeg` / `webp`), and it
+was never wired.
+
+This mattered more than it looked. Transparency requires png or webp, so
+`--background transparent` was working only because png happens to be the server-side
+default — a coincidence, not a contract.
+
+**Fix:** Added `--output-format` → `output_format` and `--output-compression` →
+`output_compression`. Kept `--format` → `response_format` untouched: pixeltamer
+supports `OPENAI_IMAGE_BASE_URL` proxies (jmrai, ZenMux, OpenRouter) which may still
+implement the older surface, and `_write_item` already handles both b64 and url
+responses precisely because of them. Documented as legacy rather than removed.
+
+**Files:** `scripts/pixeltamer_api.py`, `scripts/pixeltamer`, `references/api-backend.md`
+
+**Lesson:** A flag that parses cleanly and sends successfully can still be aimed at
+the wrong parameter. When a flag "seems to do nothing," check it against the
+provider's generated types (`openai-python/src/openai/types/image_*_params.py`) —
+those are generated from the OpenAPI spec, so they don't drift the way prose docs do.
+
+---
+
+## Codex can't do transparency, even though its schema accepts the field
+
+**Symptom:** `--background transparent` on the codex backend. `codex exec` dies with
+`unknown arg: --background`. Routing it to the OAuth Responses transport instead —
+which *does* declare a `background` field on its `image_generation` tool — fails a
+round-trip later with:
+
+```
+"Transparent background is not supported for this model."
+type=image_generation_user_error  code=invalid_value  param=tools
+```
+
+**Root cause:** Schema acceptance is not capability. The OpenAI SDK's generated types
+for the Responses `image_generation` tool list `background: transparent|opaque|auto`,
+and that's accurate about the wire format. The ChatGPT-subscription backend behind
+`codex login` rejects the value at execution. Pinning `model: gpt-image-2` in the tool
+spec doesn't change it — tried, same error.
+
+**Fix:** `--background` is intercepted in the dispatcher for the codex backend and
+fails immediately with the real reason and a pointer at `--backend api`. The OAuth
+threading was written, tested against the live API, and reverted — no point shipping
+a flag that fails 100% of the time.
+
+**Files:** `scripts/pixeltamer`, `references/transparency.md`
+
+**Lesson:** Generated SDK types tell you what the API will *parse*, not what the
+backend will *do*. Two different layers, and only a live call separates them. Cost
+of finding out: one API round-trip. Cost of not: a documented feature that never
+works on the backend most subscription users default to.

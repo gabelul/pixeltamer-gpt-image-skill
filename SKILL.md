@@ -132,6 +132,22 @@ For exploration, fire 4 in parallel:
 pixeltamer generate -p "..." -n 4 --concurrency 4 -o variants/
 ```
 
+#### Transparent assets
+
+Anything that gets composited onto a background you don't control — icons, logos,
+mascots, product cutouts, chart layers, stickers — should be generated with real
+alpha, not a green screen you clean up afterwards:
+
+```bash
+pixeltamer generate -p "<isolated subject>" --background transparent -o asset.png
+```
+
+API backend only; the dispatcher will tell you so if you're on codex. The catch
+worth knowing before you write the prompt: **the prompt outranks the flag.** Any
+backdrop, surface, scene, or cast shadow you describe gets painted, and you get a
+fully-opaque PNG with no error anywhere. Load `references/transparency.md` for the
+constraint block and the verification steps.
+
 ### Mode 2 — Edit / inpaint
 
 ```bash
@@ -165,6 +181,7 @@ For projects that need 4+ related images (a website's hero + features + footer +
 
 1. Survey what images are needed.
 2. Plan a `prompts.md` with one entry per image (target path, format, native size, optional reference, status, prompt).
+   Entries whose `Format` says `PNG transparent` must be generated with `--background transparent` — the verifier checks for a real alpha channel and fails them otherwise.
 3. Generate each one, calling the right backend per entry.
 4. Run `pixeltamer batch <path-to-prompts.md>` to verify every output (file exists, dimensions match, file size sane).
 5. Visually self-review each generated PNG using the `Read` tool; demote to `failed:<reason>` if it doesn't match the prompt.
@@ -176,8 +193,8 @@ The `prompts.md` format is parsed by the verifier in `scripts/verify-images.mjs`
 
 0. **Read `references/index.md` first.** Find the closest match for the request in the routing map. Load the smallest useful slice — one recipe or one playbook file or one reference, not all of them. Never write a prompt from scratch when a similar pattern exists in our recipes or playbooks. If no match, fall back to `references/prompting.md` plus the closest recipe.
 1. **Understand the request.** Identify the mode (generate / edit / compose / batch). Confirm the recipe / playbook / reference loaded in Step 0 actually fits — if not, route again.
-2. **Read references when relevant.** Beyond the file `index.md` pointed you to: load `references/prompting.md` for any non-trivial prompt. Load `references/multi-reference.md` for compose mode. Load `references/prompt-patterns.md` when you're composing the prompt programmatically, hitting one of the doctrine categories (UI / infographic / brand identity / e-commerce hero / architectural render / scientific atlas / typography poster), or need brand consistency across many images. Don't dump every reference into context — pull only what's needed.
-3. **Resolve unspecified params.** Pick a sensible size based on the use case (see the size table in `references/prompting.md`). Default `--quality high`. Pick a backend if the user didn't specify.
+2. **Read references when relevant.** Beyond the file `index.md` pointed you to: load `references/prompting.md` for any non-trivial prompt. Load `references/multi-reference.md` for compose mode. Load `references/transparency.md` for any transparent-alpha asset. Load `references/prompt-patterns.md` when you're composing the prompt programmatically, hitting one of the doctrine categories (UI / infographic / brand identity / e-commerce hero / architectural render / scientific atlas / typography poster), or need brand consistency across many images. Don't dump every reference into context — pull only what's needed.
+3. **Resolve unspecified params.** Pick a sensible size based on the use case (see the size table in `references/prompting.md`). Default `--quality high`. Pick a backend if the user didn't specify. If the asset will be composited onto something else — icon, logo, mascot, cutout, chart layer — reach for `--background transparent` and load `references/transparency.md` before writing the prompt.
 4. **Build the prompt.** Apply the canonical structure: Intent → Scene → Subject → Details → Text → Style → Constraints. Drop magic words ("8K, ultra detailed, masterpiece, professional"). Quote any text that should appear in the image. Specify what to preserve on edits. For UI screens, infographics, brand renders, scientific atlases, or any request where you're composing the prompt programmatically, escalate to the JSON-config schema and other advanced patterns in `references/prompt-patterns.md`.
 5. **Generate.** Call the right `pixeltamer` subcommand. Print the resulting absolute path.
 6. **Visually self-verify.** Use the `Read` tool to view the generated PNG. Judge it against the prompt:
@@ -185,6 +202,8 @@ The `prompts.md` format is parsed by the verifier in `scripts/verify-images.mjs`
    - Is the text rendered correctly and spelled exactly as quoted?
    - Are there obvious artifacts (warped anatomy, misspellings, glitched typography)?
    - Does the composition match what was asked?
+   - If you asked for transparency: is the alpha actually transparent? An opaque
+     alpha channel is the standard silent failure — check it, don't assume it.
    If it fails — say so honestly. Don't paper over a bad result with "looks great!"
 7. **Iterate or hand off.** If the result is wrong, change ONE dimension and regenerate (see iteration table in `references/prompting.md`). If the result is good, surface the file path to the user.
 
@@ -241,6 +260,8 @@ Pull only what's needed for the current job. Don't dump them all.
 | "professional, beautiful, premium, stunning" | Praise language with zero instructional content. |
 | Generating before checking which backend is available | Run `pixeltamer doctor` first if it's the first call this session. |
 | Edit / compose on codex backend | Works since 0.3.0 via the OAuth Responses API (`pixeltamer_codex_oauth.py`). Mask-based inpainting still requires the API path — the Responses API doesn't take a mask parameter. So does any edit needing a specific output size: codex returns the input's aspect and ignores `--size`. |
+| Chroma-key green screens for cutout assets | Stale advice. `--background transparent` gives real alpha on the API backend. Key only when you're on codex or the edges come out dirty. |
+| Describing a backdrop while asking for transparency | The prompt outranks the flag. "Clean white studio" beats `--background transparent` and you get a white rectangle. |
 | Skipping visual self-verification | Image gen is stochastic. "API succeeded" ≠ "image is correct". |
 | Stacking three new clauses when one isn't working | Change one dimension at a time. You won't know what helped otherwise. |
 | Running examples folder PNGs as ground truth | They're demonstrations, not specs. Composition will vary on regen. |
@@ -256,6 +277,8 @@ Pull only what's needed for the current job. Don't dump them all.
 | A guaranteed output size when editing | API only — codex ignores `--size` for `edit`/`compose` and returns the input's aspect |
 | Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |
+| Transparent background / real alpha channel | API only — `codex exec` has no background control, and the OAuth transport rejects transparency for this model |
+| A specific output file format (png / jpeg / webp) | API only via `--output-format` — both codex transports always return PNG |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
 | Largest sizes (4K) at high quality | API; on codex, `--size` is honoured for `generate` only and its reasoning loop slows on large outputs |
 

@@ -161,3 +161,63 @@ test('accepts native size with surrounding whitespace', () => {
   });
   assert.deepEqual(result, { ok: true });
 });
+
+// --- transparency gate ---
+
+const TRANSPARENT_ENTRY = {
+  ...PNG_ENTRY,
+  index: 9,
+  format: 'PNG transparent',
+};
+
+const OPAQUE_ENTRY = {
+  ...PNG_ENTRY,
+  index: 10,
+  format: 'PNG',
+};
+
+test('passes a transparent entry whose PNG declares an alpha channel', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => true,
+  });
+  assert.deepEqual(result, { ok: true });
+});
+
+test('fails a transparent entry whose PNG has no alpha channel', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => false,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /no alpha channel/);
+});
+
+test('fails a transparent entry when the alpha channel cannot be read', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => null,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /unable to read alpha channel/);
+});
+
+test('skips the alpha gate for an entry that never asked for transparency', () => {
+  const result = verifyEntry(OPAQUE_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => { throw new Error('should not be called'); },
+  });
+  assert.deepEqual(result, { ok: true });
+});
+
+test('tolerates a caller that does not inject getHasAlpha at all', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+  });
+  assert.deepEqual(result, { ok: true });
+});

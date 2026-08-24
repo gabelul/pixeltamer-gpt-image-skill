@@ -116,6 +116,63 @@ def _validate_size(size: str) -> None:
         sys.exit(f"ERROR: aspect ratio must be ≤ {MAX_RATIO:.0f}:1 (got {ratio:.2f}:1)")
 
 
+# ------------------------------------------------------------- transparency
+
+# Formats that can actually carry an alpha channel. JPEG can't — it has no alpha,
+# so `--background transparent --output-format jpeg` is a guaranteed silent
+# disappointment (you get an opaque image and no error from the API).
+ALPHA_CAPABLE_FORMATS = ("png", "webp")
+
+
+def _resolve_output_format(a: argparse.Namespace) -> str | None:
+    """Work out the `output_format` value to send, and guard the alpha footguns.
+
+    Two things go wrong here if we don't intervene:
+
+    1. `--background transparent` with no `--output-format`. The API's default is
+       png, so this happens to work — but "happens to work" is not a contract.
+       We pin it to png explicitly.
+    2. `--background transparent --output-format jpeg`. JPEG has no alpha channel.
+       The API won't complain; you'll just get an opaque image and wonder why.
+       We refuse up front.
+
+    Also catches the sneakier version of (2): the output *path* ends in `.jpg`
+    while the requested format is alpha-capable. The file would be a PNG wearing a
+    JPEG extension — technically transparent, practically broken in half the tools
+    that open it.
+
+    @param a - parsed args (reads .background, .output_format, .out)
+    @returns the output_format string to send, or None to let the API default
+    """
+    fmt = a.output_format
+    if a.background != "transparent":
+        return fmt
+
+    # Pin the default. The spec says: when using transparent, set output format
+    # to png or webp. Don't rely on the server-side default staying png.
+    if fmt is None:
+        fmt = "png"
+
+    if fmt not in ALPHA_CAPABLE_FORMATS:
+        sys.exit(
+            f"ERROR: --background transparent needs an alpha-capable format; "
+            f"{fmt} has no alpha channel. Use --output-format png (or webp)."
+        )
+
+    # Extension check runs against the *resolved* format, so it catches the
+    # common case too: `--background transparent -o thing.jpg` with no explicit
+    # --output-format. That would write PNG bytes into a .jpg file.
+    if a.out:
+        ext = Path(a.out).suffix.lower()
+        if ext in (".jpg", ".jpeg"):
+            sys.exit(
+                f"ERROR: --background transparent writes {fmt} bytes, but -o ends "
+                f"in {ext}. Give the output a .{fmt} extension."
+            )
+
+    return fmt
+
+
 _print_lock = threading.Lock()
 
 
@@ -292,6 +349,14 @@ def cmd_generate(a: argparse.Namespace) -> None:
         payload["style"] = a.style
     if a.background:
         payload["background"] = a.background
+    out_fmt = _resolve_output_format(a)
+    if out_fmt:
+        payload["output_format"] = out_fmt
+    if a.output_compression is not None:
+        payload["output_compression"] = a.output_compression
+    # Legacy DALL-E param. gpt-image models ignore it (they always return b64),
+    # but OpenAI-compatible proxies pointed at by OPENAI_IMAGE_BASE_URL may still
+    # honour it — hence the passthrough rather than a hard removal.
     if a.format:
         payload["response_format"] = a.format
     if a.moderation:
@@ -339,6 +404,12 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
         fields["quality"] = a.quality
     if a.background:
         fields["background"] = a.background
+    out_fmt = _resolve_output_format(a)
+    if out_fmt:
+        fields["output_format"] = out_fmt
+    if a.output_compression is not None:
+        fields["output_compression"] = str(a.output_compression)
+    # See the note in cmd_generate — kept for proxy compatibility only.
     if a.format:
         fields["response_format"] = a.format
     if a.moderation:
@@ -412,8 +483,14 @@ def main() -> None:
     g.add_argument("--model", default=DEFAULT_MODEL)
     g.add_argument("--quality", **common_quality)
     g.add_argument("--style", choices=["vivid", "natural"])
-    g.add_argument("--background", choices=["transparent", "opaque", "auto"])
-    g.add_argument("--format", choices=["url", "b64_json"])
+    g.add_argument("--background", choices=["transparent", "opaque", "auto"],
+                   help="transparent needs --output-format png|webp (auto-pinned to png)")
+    g.add_argument("--output-format", choices=["png", "jpeg", "webp"],
+                   help="file format of the returned image (gpt-image models only)")
+    g.add_argument("--output-compression", type=int, metavar="0-100",
+                   help="compression level for jpeg/webp output only")
+    g.add_argument("--format", choices=["url", "b64_json"],
+                   help="legacy response_format; ignored by gpt-image models")
     g.add_argument("--moderation", choices=["auto", "low"])
     g.add_argument("--user")
     g.set_defaults(fn=cmd_generate)
@@ -431,8 +508,12 @@ def main() -> None:
     e.add_argument("-o", "--out")
     e.add_argument("--model", default=DEFAULT_MODEL)
     e.add_argument("--quality", **common_quality)
-    e.add_argument("--background", choices=["transparent", "opaque", "auto"])
-    e.add_argument("--format", choices=["url", "b64_json"])
+    e.add_argument("--background", choices=["transparent", "opaque", "auto"],
+                   help="transparent needs --output-format png|webp (auto-pinned to png)")
+    e.add_argument("--output-format", choices=["png", "jpeg", "webp"])
+    e.add_argument("--output-compression", type=int, metavar="0-100")
+    e.add_argument("--format", choices=["url", "b64_json"],
+                   help="legacy response_format; ignored by gpt-image models")
     e.add_argument("--moderation", choices=["auto", "low"])
     e.add_argument("--user")
     e.set_defaults(fn=cmd_edit)
@@ -449,8 +530,12 @@ def main() -> None:
     c.add_argument("-o", "--out")
     c.add_argument("--model", default=DEFAULT_MODEL)
     c.add_argument("--quality", **common_quality)
-    c.add_argument("--background", choices=["transparent", "opaque", "auto"])
-    c.add_argument("--format", choices=["url", "b64_json"])
+    c.add_argument("--background", choices=["transparent", "opaque", "auto"],
+                   help="transparent needs --output-format png|webp (auto-pinned to png)")
+    c.add_argument("--output-format", choices=["png", "jpeg", "webp"])
+    c.add_argument("--output-compression", type=int, metavar="0-100")
+    c.add_argument("--format", choices=["url", "b64_json"],
+                   help="legacy response_format; ignored by gpt-image models")
     c.add_argument("--moderation", choices=["auto", "low"])
     c.add_argument("--user")
     c.set_defaults(fn=cmd_compose)

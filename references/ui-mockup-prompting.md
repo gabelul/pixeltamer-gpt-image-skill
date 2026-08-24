@@ -102,9 +102,16 @@ Details: large crisp vector-style dark navy marks and wordmarks, color #273142, 
 Constraints: pure white background, no shadow, no glow, no texture, no gradient, no border, no labels, no grid, no watermark. Render only the logo row. Text must be legible and spelled exactly.
 ```
 
-### Green-screen variant for reliable alpha extraction
+### When the asset needs to sit on a background you don't control
 
-When white background will conflict with the destination background (dark UIs, complex backdrops), use chroma-key:
+On the API backend, generate real alpha: `--background transparent`, plus the
+constraint block from `references/transparency.md`. No keying, no fringe, no
+second pass.
+
+### Green-screen variant (codex backend, or when alpha comes out dirty)
+
+When you can't get native alpha — codex backend, or a subject the model keeps
+refusing to cut cleanly — chroma-key still works:
 
 ```
 Put the asset on a perfectly flat solid #00ff00 chroma-key background for background removal.
@@ -123,7 +130,8 @@ Then use ImageMagick or rembg to alpha-extract — see `post-process.md`.
 | Vendor logos, dark text, dark line icons | White | Green leaves green tint on antialiased edges of dark strokes |
 | Colorful illustrations, hero graphics, decorative elements | Green (#00ff00) | White-keying eats white highlights inside the subject |
 | UI screens / cards (already mostly white) | Green | White-keying destroys the subject |
-| Anything with semi-transparent shadows or soft glows | Generate with real `--background transparent` (API backend supports it) | Both keying methods leave artifacts |
+| Anything with semi-transparent shadows or soft glows | Native `--background transparent` — don't key this | Both keying methods leave artifacts on soft edges |
+| Anything at all, if you have an API key | Native `--background transparent` | The table above is the fallback path; native alpha skips it |
 
 ## Common UI prompt mistakes
 

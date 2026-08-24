@@ -17,7 +17,7 @@ Make/generate/draw an image, poster, illustration, mockup, icon, sticker, sprite
 | Backend | Auth | Strengths | Limits |
 |---|---|---|---|
 | `api` | `OPENAI_API_KEY` / `OPENAI_IMAGE_API_KEY` | fastest, all modes, custom hosts | per-image cost, org must be verified for gpt-image-2 |
-| `codex` | `codex login` (ChatGPT subscription) | no API key, included in plan | generate only — no edit/compose; slower |
+| `codex` | `codex login` (ChatGPT subscription) | no API key, included in plan | generate only — no edit/compose; no transparency; slower |
 
 Auto-detect: api if key set, else codex. Override: `--backend api|codex` or `PIXELTAMER_BACKEND` env.
 
@@ -69,8 +69,17 @@ After setup → re-run `pixeltamer doctor` → proceed with request.
 --concurrency C        max parallel HTTP (default 4)
 -i PATH                reference image (repeatable for compose)
 --mask PATH            inpaint mask (edit only); white = regenerate
+--background           transparent|opaque|auto — API backend only
+--output-format        png|jpeg|webp — API backend only
 --backend api|codex    override auto-detect
 ```
+
+**Transparency:** `--background transparent` gives real alpha (API only, auto-pins
+png). The prompt outranks the flag — any backdrop, surface, scene, or cast shadow
+you describe gets painted and you get an opaque PNG with no error. Append:
+`Output an isolated object on actual fully transparent alpha. No backdrop, no
+background colour, no rectangle, no plinth, no surface, no cast shadow, no
+watermark.` Details: `references/transparency.md`.
 
 Shortcut: `pixeltamer "make me X"` infers `generate`.
 
@@ -116,6 +125,7 @@ Check:
 - Visible artifacts (warped anatomy, glitched typography)?
 - Composition matches request?
 - Color/tone matches request?
+- Asked for transparency? Alpha actually transparent, not just present? (`magick identify -format "%[channels]" f.png`; opaque-everywhere alpha is the silent failure)
 
 If wrong: change ONE prompt dimension, regenerate. Never bolt 3 new clauses on at once.
 
@@ -129,6 +139,7 @@ If wrong: change ONE prompt dimension, regenerate. Never bolt 3 new clauses on a
 | Cluttered | Add negative space + cut adjectives |
 | Off-brand color | Add hex codes / named palette |
 | Text wrong | Re-quote text + add "no extra characters" |
+| Opaque when you asked for alpha | Cut every backdrop/scene/shadow word from the prompt |
 
 ## Routing
 

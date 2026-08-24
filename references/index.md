@@ -26,6 +26,7 @@ Never write a prompt from scratch when a similar pattern exists in our recipes o
 | Any non-trivial prompt — canonical structure, style vocabulary, JSON-vs-prose decision, front-50-words rule, praise-language substitution | `references/prompting.md` | The doctrine. Read first if no recipe matches. |
 | Programmatic prompt construction, JSON-config schema, role-based opener, brand-consistency-across-many-images | `references/prompt-patterns.md` | Advanced construction patterns. Escalation path beyond `prompting.md` |
 | Compose mode (2–16 reference images blended into one) | `references/multi-reference.md` | Labeling patterns + reference-set sizing for `pixeltamer compose` |
+| Transparent PNG assets — icons, logos, cutouts, chart layers, anything composited onto a background you don't control | `references/transparency.md` | Native alpha via `--background transparent`, the prompt rules that keep it, verification, compositing |
 | Compress, resize, convert, crop, alpha-extract a generated PNG | `references/post-process.md` | Post-generation manipulation one-liners |
 | UI / dashboard / app-screen prompts (paired with `recipes/ui-mockup.md`) | `references/ui-mockup-prompting.md` | UI dialect, asset codification |
 | API backend troubleshooting, env vars, custom hosts (jmrai, ZenMux, OpenRouter) | `references/api-backend.md` | OpenAI API specifics |
@@ -37,6 +38,8 @@ For questions our docs don't cover. These are stable, public, and worth checking
 
 - **OpenAI Cookbook — GPT Image Generation Models Prompting Guide**: <https://developers.openai.com/cookbook/examples/multimodal/image-gen-models-prompting-guide>
   Use when: you need OpenAI's canonical Scene → Subject → Details → Use Case → Constraints structure, edit-pattern templates, or character-consistency techniques.
+- **OpenAI Cookbook — Transparent Image Assets for Campaigns and Presentations**: <https://developers.openai.com/cookbook/examples/multimodal/transparent-image-assets-for-campaigns-and-presentations>
+  Use when: you want OpenAI's own worked example of the generate-isolated-assets-then-composite workflow, including their alpha-coverage validation pass. Our `references/transparency.md` covers the same ground with pixeltamer's flags.
 - **fal.ai — GPT Image 2 Prompting Guide**: <https://fal.ai/learn/tools/prompting-gpt-image-2>
   Use when: you want a parallel perspective on the same canonical structure with different worked examples.
 - **wuyoscar / gpt_image_2_skill**: <https://github.com/wuyoscar/gpt_image_2_skill>
@@ -52,6 +55,7 @@ For questions our docs don't cover. These are stable, public, and worth checking
 
 When the request is genuinely ambiguous between two recipes:
 
+- **Transparency vs chroma-key**: are you on the API backend? Then `references/transparency.md` — native alpha, first try. Codex backend, or a subject the model won't cut cleanly? Then the green-screen patterns in `ui-mockup-prompting.md` + `post-process.md`.
 - **Mascot vs editorial-cover**: is the *character* the deliverable, or is the *cover layout* the deliverable? Character → `mascot.md`. Cover → `editorial-cover.md`.
 - **Infographic vs ui-mockup**: is it data + framework + concept, or is it interface + screen content? Data → `infographic.md`. Interface → `ui-mockup.md`.
 - **Editorial-cover vs typography-posters**: is the hero an image with type overlay, or is the type itself the hero with no/minimal image? Image-led → `editorial-cover.md`. Type-led → `playbook/typography-posters.md`.

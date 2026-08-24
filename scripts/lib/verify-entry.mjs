@@ -7,7 +7,7 @@ const PNG_EXTS = new Set(['.png']);
 const JPG_EXTS = new Set(['.jpg', '.jpeg']);
 
 export function verifyEntry(entry, projectRoot, deps) {
-  const { fs, getDimensions } = deps;
+  const { fs, getDimensions, getHasAlpha } = deps;
   const fullPath = resolve(projectRoot, entry.path);
 
   if (!fs.existsSync(fullPath)) {
@@ -51,6 +51,29 @@ export function verifyEntry(entry, projectRoot, deps) {
       ok: false,
       reason: `dimensions ${actual.width}×${actual.height} expected ${expected.width}×${expected.height}`,
     };
+  }
+
+  // "PNG transparent" in the Format field is a promise the file has to keep.
+  // The common failure is silent: the prompt described a backdrop, gpt-image-2
+  // obliged, and you get flat RGB back with no error anywhere in the chain.
+  //
+  // Header-only check — see parseHasAlphaChannel. It catches "no alpha channel
+  // at all", which is most of the misses. It CANNOT catch an alpha channel
+  // that's fully opaque; that one is the visual self-review step's job.
+  //
+  // getHasAlpha stays optional so older callers passing only {fs, getDimensions}
+  // keep working instead of throwing on an undefined call.
+  if (formatLower.includes('transparent') && getHasAlpha) {
+    const hasAlpha = getHasAlpha(fullPath);
+    if (hasAlpha === null) {
+      return { ok: false, reason: 'unable to read alpha channel' };
+    }
+    if (!hasAlpha) {
+      return {
+        ok: false,
+        reason: 'format says transparent but the PNG has no alpha channel',
+      };
+    }
   }
 
   return { ok: true };

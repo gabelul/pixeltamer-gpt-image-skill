@@ -91,7 +91,7 @@ For people, add a `Preserve exactly: facial features, identity, hair, expression
 |----------|------|-------|
 | PPT / web hero / YouTube thumbnail | `1536x864` (true 16:9) or `1792x1024` | Title-safe area on one side |
 | Print poster, mobile cover, story | `1024x1536` (2:3) or `1024x1792` | Vertical typography |
-| Square (icon, IG post, logo) | `1024x1024` | For sprites/icons that need transparency, ask for `solid magenta #FF00FF background` and strip post-hoc, OR generate green-screen and run alpha extraction |
+| Square (icon, IG post, logo) | `1024x1024` | Sprites/icons that need transparency: generate with `--background transparent` (API backend) — see `references/transparency.md`. Chroma-key is the fallback, not the plan |
 | High-res square / print poster | `2048x2048` | Slower; only when needed |
 | 4K landscape / wallpaper | `3840x2160` | Top of supported size range |
 | 4K portrait / vertical poster | `2160x3840` | Same |

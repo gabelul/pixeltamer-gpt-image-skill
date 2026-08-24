@@ -53,6 +53,50 @@ function jpegDimensions(buf) {
   return null;
 }
 
+// PNG IHDR carries a colour-type byte at offset 25 (right after the 1-byte bit
+// depth at 24). Bit 2 of that byte is the alpha flag, so type 4 (grayscale+alpha)
+// and 6 (RGBA) are the two that carry a real alpha channel. Types 0/2/3 don't.
+//
+// Type 3 (palette) deserves a note: a PLTE image CAN fake transparency via a
+// tRNS chunk, but gpt-image-2 never emits palette PNGs, so treating type 3 as
+// "no alpha" costs us nothing and keeps this a fixed-offset read.
+const PNG_COLOR_TYPE_OFFSET = 25;
+const PNG_ALPHA_BIT = 0b100;
+
+/**
+ * Does this image buffer declare an alpha channel?
+ *
+ * Header-only check — it reads the format's own declaration, it does NOT decode
+ * pixels. So a PNG whose alpha channel exists but is fully opaque (the classic
+ * "model painted a backdrop anyway" failure) still returns true here. Proving
+ * pixels are actually transparent needs an IDAT inflate; this is the cheap gate
+ * that catches the common case of getting RGB back when you asked for RGBA.
+ *
+ * @param {Buffer} buf - raw image bytes
+ * @returns {boolean|null} true/false for a readable PNG, null if not a PNG we can parse
+ */
+export function parseHasAlphaChannel(buf) {
+  if (!buf || buf.length <= PNG_COLOR_TYPE_OFFSET) return null;
+  if (!pngDimensions(buf)) return null; // not a PNG (JPEG never has alpha anyway)
+  return (buf[PNG_COLOR_TYPE_OFFSET] & PNG_ALPHA_BIT) !== 0;
+}
+
+/**
+ * Read an image file from disk and report whether it declares an alpha channel.
+ * @param {string} path - image file path
+ * @param {(p:string)=>Buffer} [readFile] - injectable reader (defaults to fs); handy for tests
+ * @returns {boolean|null} true/false, or null on read/parse failure
+ */
+export function readHasAlphaChannel(path, readFile = readFileSync) {
+  let buf;
+  try {
+    buf = readFile(path);
+  } catch {
+    return null;
+  }
+  return parseHasAlphaChannel(buf);
+}
+
 /**
  * Parse width/height out of an in-memory image buffer.
  * @param {Buffer} buf - raw image bytes

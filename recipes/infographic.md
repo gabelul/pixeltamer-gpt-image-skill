@@ -14,7 +14,7 @@ Editorial magazine-spread infographic. gpt-image-2's sweet spot — precise text
 
 - More than 6–8 sections of dense text → output gets crowded; build a carousel instead
 - Real data accuracy required → the model paraphrases. Pre-supply exact numbers in the prompt.
-- Transparent background needed → strip locally with rembg, or generate green-screen and key it.
+- Transparent background needed → generate with `--background transparent` and add the plot-area clause from `references/transparency.md`. Charts default hard to a white card, so say it explicitly.
 
 ## Defaults
 

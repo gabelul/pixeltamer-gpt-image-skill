@@ -88,14 +88,17 @@ magick image.jpg -strip out.jpg
 
 ## Make a transparent background
 
-If you need transparent and the model gave you opaque:
+First question: did you actually ask for one? gpt-image-2 emits real alpha via
+`--background transparent` on the API backend. Regenerating with the right flag
+beats post-hoc removal every time — see `references/transparency.md`.
+
+Everything below is for when that isn't available (codex backend), or when the
+source is an image you didn't generate:
 
 ```bash
 # rembg — neural background removal, very good
 pip install rembg
 rembg i input.png output.png
-
-# Or generate again with --background transparent (API backend supports it)
 ```
 
 For green-screen / chroma-key removal of model-generated solid-color backgrounds:
