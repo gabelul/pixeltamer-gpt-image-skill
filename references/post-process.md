@@ -92,6 +92,20 @@ First question: did you actually ask for one? gpt-image-2 emits real alpha via
 `--background transparent` on **both** backends for `generate`. Regenerating with
 the right flag beats post-hoc removal every time — see `references/transparency.md`.
 
+### Trim transparent padding to the artwork
+
+Generate padded, crop after. The alpha channel gives you an exact bounding box, so this is lossless and needs no threshold guessing:
+
+```bash
+magick asset.png -trim +repage trimmed.png
+```
+
+```python
+# Pillow — same thing, and getbbox() returning None means the asset is empty
+bounds = image.getchannel("A").getbbox()
+trimmed = image.crop(bounds) if bounds else None
+```
+
 ### Scrub the RGB under transparent pixels
 
 Fully-transparent pixels still carry colour, and gpt-image-2 routinely leaves a

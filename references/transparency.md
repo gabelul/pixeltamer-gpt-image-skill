@@ -44,10 +44,43 @@ no surface, no cast shadow, no reflection, no vignette, no label text,
 no watermark.
 ```
 
-Two extra clauses depending on what you're making:
+### Name the boundary, don't just deny the background
 
-- **Soft-edged subjects** (fur, smoke, glass, hair): add `crisp alpha edges, no halo, no matte fringe`. Semi-transparent edges are where alpha extraction used to fall apart and where the model still sometimes hedges.
-- **Charts and diagrams**: add `keep the plot area, the grid, and the space between bars transparent. Do not add a background, a filled panel, a frame, a title bar, or a card.` Chart layouts pull hard toward a white card — say it explicitly or you get one.
+"No background" is a wish. Naming the edge the transparency starts at is a constraint, and it's the single biggest upgrade to a transparent-asset prompt:
+
+| Asset | Say this |
+|---|---|
+| App icon | `keep everything outside the rounded icon tile transparent` |
+| Sticker | `keep everything outside the die-cut border transparent` |
+| Garment / product cutout | `keep everything outside the garment silhouette transparent` |
+| Botanical sprig, filigree, chain, lattice | `keep all space around **and between** the thin branches and leaves transparent` |
+| Chart | `keep the plot area, the grid, and the space between bars transparent` |
+| Doughnut chart | `keep the doughnut centre, the legend area, and all surrounding space transparent` |
+
+That "around **and between**" phrasing is what saves filigree. Without it the model treats the subject's convex hull as the silhouette and fills the gaps between branches, which reads as a solid blob the moment you composite it.
+
+### Extra clauses by subject type
+
+- **Hard-edged subjects**: add `crisp alpha edges, no halo, no matte fringe`.
+- **Genuinely translucent material** (glass, liquid, resin, gemstone): add `preserve every natural transparency, refraction, translucent layer and fine material edge`. Different instruction from the one above — here you *want* partial alpha through the body of the object, not just at its rim. Asking for crisp edges on a perfume bottle flattens the glass.
+- **Charts and diagrams**: transparency has to run *through* the chart, not just around its silhouette. Add `do not add a background, a filled panel, a frame, a title, or a card`, and for a dark destination theme specify `white or pale labels` and bright colours explicitly — the model defaults to dark text that vanishes on a dark slide.
+
+### Keeping a collection consistent
+
+Generating a set — a product range, an icon family, a sticker pack — one prompt at a time gives you four assets that don't look related. Fix it the way the OpenAI cookbook does: write the per-item description short and specific, then append **one identical brand-and-transparency block** to every item.
+
+```python
+brand = (
+    "One object from <BRAND>, <house style in 15-25 words: materials, palette, "
+    "lighting, restraint>. Full object completely visible and generously padded. "
+    "Output an isolated object on actual fully transparent alpha; no backdrop, "
+    "no rectangle, no plinth, no cast shadow, no readable writing, no label "
+    "text, no watermark."
+)
+prompt = f"{item_description} {brand}"
+```
+
+The constant suffix is doing two jobs: it's the style anchor that makes four separate generations read as one collection, and it's the transparency contract. Change it once and the whole set moves together. This is the pattern batch mode's `prompts.md` should follow — see `SKILL.md` Mode 4.
 
 ## Writing the subject itself
 
@@ -161,6 +194,49 @@ magick background.png asset.png -geometry +120+80 -composite composed.png
 ```
 
 When the layers need to *interact* — real contact shadows, reflections, matched lighting — that's `pixeltamer compose` territory instead. Alpha layers stack; they don't blend. See `multi-reference.md`.
+
+## Trim the padding after, not before
+
+Ask for generous padding in the prompt — cropping in is free, inventing pixels you cropped off is a re-roll. Then trim to the actual artwork using the alpha channel itself, which is exact rather than eyeballed:
+
+```python
+from PIL import Image
+
+def visible_region(image):
+    """Crop away fully-transparent padding without touching visible pixels."""
+    bounds = image.getchannel("A").getbbox()   # None means the image is empty
+    if bounds is None:
+        raise ValueError("Expected a transparent PNG with visible artwork.")
+    return image.crop(bounds)
+```
+
+```bash
+# ImageMagick equivalent
+magick asset.png -trim +repage trimmed.png
+```
+
+`getbbox()` on the alpha channel returns the tight box around every non-zero pixel, so the crop is pixel-exact and lossless. Doing this at composite time rather than generation time also means one generated asset can be placed at different scales without re-rolling.
+
+A useful side effect: if `getbbox()` returns `None`, the asset is fully transparent — the model produced nothing. That's a cheap emptiness check worth keeping in a pipeline.
+
+## Four workflows this unlocks
+
+Transparency isn't one feature, it's a set of workflows that only become possible once assets stop carrying their own background. Straight from the OpenAI cookbook, and all four are things pixeltamer can drive:
+
+**Product collection reused across campaigns.** Generate the range once with a shared brand suffix, then place the same PNGs over any number of seasonal storefront backgrounds. The alternative is re-shooting or re-cutting per campaign.
+
+**Charts that sit on a branded slide.** A generated chart with a white card clashes with every corporate PowerPoint theme. Transparent, it inherits the slide's gradient. Read the caveat in `recipes/infographic.md` first — for numbers that have to be *right*, render the chart deterministically and use generation for the illustration around it.
+
+**Design-template elements.** Icons, stickers, decorative sprigs that users drop onto arbitrary layouts. This is where the "name the boundary" table above earns its keep — icon tile, die-cut border, around-and-between for botanicals.
+
+**Print-on-demand, two transparent layers.** Generate the artwork transparent *and* the blank garment transparent, then composite artwork onto garment onto canvas. One design becomes a T-shirt and a sweatshirt without a white rectangle to remove per colourway:
+
+```python
+garment.alpha_composite(artwork, dest=(chest_x, chest_y))
+canvas.alpha_composite(garment, dest=(garment_x, garment_y))
+```
+
+Prompt the blank product with `leave the chest completely blank for a print design` and `no person, hanger, mannequin, logos, graphics, shadows, or background` — otherwise you get a styled photo you can't print onto.
 
 ## Sizes that composite cleanly
 

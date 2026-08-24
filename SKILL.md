@@ -191,6 +191,7 @@ For projects that need 4+ related images (a website's hero + features + footer +
 1. Survey what images are needed.
 2. Plan a `prompts.md` with one entry per image (target path, format, native size, optional reference, status, prompt).
    Entries whose `Format` says `PNG transparent` must be generated with `--background transparent` — the verifier checks for a real alpha channel and fails them otherwise.
+   When the batch is a *collection* (product range, icon family, sticker pack), write one shared style-and-constraint block and append it verbatim to every entry's prompt. That constant suffix is what makes N separate generations read as one set — see `references/transparency.md`.
 3. Generate each one, calling the right backend per entry.
 4. Run `pixeltamer batch <path-to-prompts.md>` to verify every output (file exists, dimensions match, file size sane).
 5. Visually self-review each generated PNG using the `Read` tool; demote to `failed:<reason>` if it doesn't match the prompt.
