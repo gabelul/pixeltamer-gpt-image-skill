@@ -20,6 +20,12 @@ Each entry has a strip like: `1024×1024 · codex · exact-typography · -i masc
 | `role-opener` | [§2 in `prompt-patterns.md`](../references/prompt-patterns.md): `(Specialty) you are a ...` |
 | `specific-negatives` | [§3 in `prompt-patterns.md`](../references/prompt-patterns.md): named-failure-mode negative list |
 | `cropped-from` | This image was post-cropped with `sips` from the listed source dimensions |
+| `transparent` | Generated with `--background transparent` — real alpha channel, verified |
+| `named-boundary` | Prompt names the edge transparency starts at ("outside the garment silhouette") rather than just denying a background |
+| `around-and-between` | Subject has interior gaps (wire loops, antenna, foliage); prompt explicitly demands the gaps stay transparent |
+| `preserve-refraction` | Translucent material — prompt asks for natural transparency rather than crisp edges |
+| `brand-hex` | Exact brand hex codes in the prompt, verified in the output |
+| `alpha: X% transparent · Y% partial · Z% ghost RGB` | Measured, not claimed. Coverage, soft-edge alpha, and RGB left under fully-transparent pixels |
 | `codex-OAuth-edit` | This entry was edited via the Codex Responses API (POST `/backend-api/codex/responses`), bypassing the codex CLI and using ChatGPT OAuth credentials directly. No `OPENAI_API_KEY` needed. See entry #8 for the proof case. |
 
 ---
@@ -391,6 +397,130 @@ Do NOT redraw anything except the colors named above. Do NOT change any text. Do
 - **Mask-based inpainting is NOT supported on this path** — the Responses API doesn't take a mask parameter. That stays API-only.
 
 </details>
+
+---
+
+## 9. Transparent asset collection — real alpha on the codex backend
+
+A four-piece asset set for three real projects (PetPacket, JollyTrack, Booplex), generated with `--background transparent` on the **codex backend** — ChatGPT subscription, no `OPENAI_API_KEY` anywhere.
+
+Each strip below is the *same PNG* on four grounds: checkerboard, cream `#FFF8E1`, near-black `#12161e`, and Booplex electric `#0056D4`. That's the only honest way to show a transparent asset in a README — drop the PNG in on its own and GitHub composites it on white, where it looks identical to an opaque image with a white background.
+
+### The shared brand block
+
+The reusable part. One identical suffix appended to every item prompt — it's simultaneously the style anchor that makes four separate generations read as one collection, and the transparency contract. Change it once and the whole set moves.
+
+```
+Bold flat illustrated neo-brutalist style: thick confident charcoal #212121
+outlines of even weight, flat fills with no gradients, warm cream #FFF8E1 base,
+electric blue #0056D4 and warm yellow #FFD166 accents, occasional soft mint
+#A5D6A7 and coral #FF6B6B details, playful and friendly but clean and geometric.
+Full object completely visible and generously padded. Output an isolated object
+on actual fully transparent alpha; no backdrop, no background colour, no
+rectangle, no plinth, no surface, no cast shadow, no readable writing, no label
+text, no watermark.
+```
+
+Every hex in that block landed. Charcoal outlines, cream base, electric blue and yellow throughout, mint on the robot's chest readout, coral on its shoe soles.
+
+### 9a. PetPacket — dog with document wallet
+
+<img src="images/transparent/strip-petpacket-dog.png" alt="Transparent dog asset shown on checkerboard, cream, dark and electric blue" width="720"/>
+
+`1024×1024 · codex · transparent · named-boundary · brand-hex`
+`alpha: 62.9% transparent · 1.4% partial · 0.0% ghost RGB`
+
+<details>
+<summary>Show prompt (item description + shared brand block)</summary>
+
+```
+A cheerful sitting dog, three-quarter view, holding a folded document wallet in
+its mouth, one ear up one ear flopped. Keep everything outside the dog and the
+document wallet transparent. <SHARED BRAND BLOCK>
+```
+
+</details>
+
+### 9b. PetPacket — records, paperclip and hanging tag
+
+<img src="images/transparent/strip-petpacket-docs.png" alt="Transparent pet records asset on four backgrounds" width="720"/>
+
+`1024×1024 · codex · transparent · around-and-between · brand-hex`
+`alpha: 52.0% transparent · 1.8% partial · 0.0% ghost RGB`
+
+The wire clip loop at the top is cut through — each background is visible *inside* the loop, not filled. That's the "around **and** between" clause doing the work; without it the model treats the subject's convex hull as the silhouette.
+
+<details>
+<summary>Show prompt</summary>
+
+```
+A small fanned stack of pet record documents and a vaccination certificate, held
+together by a thin wire paperclip at the top corner, with a slim luggage tag
+hanging off a fine looped string. Keep all space around AND BETWEEN the fanned
+pages, the paperclip wire loop and the hanging string transparent — do not fill
+the gaps. <SHARED BRAND BLOCK>
+```
+
+</details>
+
+### 9c. JollyTrack — snow globe (the translucency case)
+
+<img src="images/transparent/strip-jollytrack-globe.png" alt="Transparent snow globe asset on four backgrounds, glass dome tinting to each" width="720"/>
+
+`1024×1024 · codex · transparent · preserve-refraction · brand-hex`
+`alpha: 46.4% transparent · 13.2% partial · 0.0% ghost RGB`
+
+The best demonstration in the set. The glass dome is genuinely semi-transparent, so each background shows **through** it — the globe reads dark on dark and blue on blue while the scene inside stays opaque. 13.2% partial alpha is what buys that, and no chroma-key cutout can fake it.
+
+Note the clause that produced it is the *opposite* of the one you want for hard edges: `preserve the natural transparency and refraction of the glass dome`, not `crisp alpha edges`. Ask for crisp edges here and you flatten the glass.
+
+<details>
+<summary>Show prompt</summary>
+
+```
+A snow globe on a chunky base, with a small house and a pine tree inside and
+swirling snowflakes suspended in the liquid. Keep everything outside the globe
+and its base transparent, and preserve the natural transparency and refraction
+of the glass dome so the snow and scene read through it. <SHARED BRAND BLOCK>
+```
+
+</details>
+
+### 9d. Booplex — desk robot
+
+<img src="images/transparent/strip-booplex-robot.png" alt="Transparent robot mascot asset on four backgrounds" width="720"/>
+
+`1024×1024 · codex · transparent · around-and-between · brand-hex`
+`alpha: 62.7% transparent · 1.9% partial · 0.0% ghost RGB`
+
+<details>
+<summary>Show prompt</summary>
+
+```
+A friendly boxy little desk robot with a rounded head, two antenna wires ending
+in small balls, stubby arms, one arm raised in a wave, a single round eye lens.
+Keep everything outside the robot transparent, including the space around AND
+BETWEEN the two thin antenna wires and between its arms and body.
+<SHARED BRAND BLOCK>
+```
+
+</details>
+
+### What this entry is evidence for
+
+> **Transparency works on the codex backend.** pixeltamer's docs said the opposite until August 2026. The confusion is real but narrow: the OAuth Responses transport *rejects* `background` as a tool parameter (`"Transparent background is not supported for this model."`), while codex's `image_gen` honours the same request made as **prompt text**. Parameter refused, sentence honoured. `pixeltamer generate --background transparent` on codex now translates the flag into prompt language, announces the rewrite on stderr, and checks the resulting PNG's alpha. See [`references/transparency.md`](../references/transparency.md).
+
+Three techniques carried the set, all from OpenAI's [transparent-image-assets cookbook](https://developers.openai.com/cookbook/examples/multimodal/transparent-image-assets-for-campaigns-and-presentations):
+
+1. **Name the boundary.** "No background" is a wish. "Keep everything outside the garment silhouette transparent" is a constraint. For anything with interior gaps, "around **and** between".
+2. **One shared brand block per collection.** Style anchor and transparency contract in the same paragraph.
+3. **Match the edge clause to the material.** `crisp alpha edges, no halo` for hard subjects; `preserve the natural transparency and refraction` for glass, liquid and glow. They pull in opposite directions.
+
+**Honest notes:**
+
+- Panel 4 of each strip is Booplex electric `#0056D4`, and 9a's blue wallet and bandana nearly disappear against it — saved only by the charcoal outline. A transparent asset works on *any* background; it doesn't guarantee *contrast* on every background. Check your brand colour against itself.
+- Ghost RGB came in at 0.0% across all four. Earlier test runs with prompts that didn't name a boundary measured 62–87%. Suggestive, not established — n is small and the two prompt sets differ in more than one way.
+- All four PNGs are `pngquant --quality=70-92` optimised (6.1 MB → 1.35 MB). Alpha survives intact, partial alpha included: 13.4% → 13.2% on the globe, `alpha_max=255` throughout.
 
 ---
 

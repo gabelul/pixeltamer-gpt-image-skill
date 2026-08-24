@@ -92,6 +92,20 @@ First question: did you actually ask for one? gpt-image-2 emits real alpha via
 `--background transparent` on **both** backends for `generate`. Regenerating with
 the right flag beats post-hoc removal every time — see `references/transparency.md`.
 
+### Shrink a transparent PNG without losing the alpha
+
+`pngquant` quantises flat illustration work hard and leaves the alpha channel
+alone — including partial alpha. Measured on the gallery set: 6.1 MB → 1.35 MB,
+coverage percentages unchanged, a 13.4% partial-alpha glass dome came out at
+13.2%, `alpha_max` still 255.
+
+```bash
+pngquant --quality=70-92 --speed 1 --force --output out.png in.png
+```
+
+Photographic subjects tolerate it less well than flat vector-ish art — check the
+result rather than assuming.
+
 ### Trim transparent padding to the artwork
 
 Generate padded, crop after. The alpha channel gives you an exact bounding box, so this is lossless and needs no threshold guessing:
