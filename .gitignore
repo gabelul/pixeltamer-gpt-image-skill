@@ -31,3 +31,6 @@ __pycache__/
 .github/assets/.omx/
 .claude/local/
 .claude-mem/
+
+# Eval run artifacts — the suite is checked in, the results aren't.
+evals/results/

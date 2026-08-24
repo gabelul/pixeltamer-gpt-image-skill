@@ -1,0 +1,110 @@
+{
+  "skill_name": "pixeltamer",
+  "note": "Two things get measured per query: did the Skill tool fire for pixeltamer (trigger), and once it did, was a reference or recipe file actually read (routing). A skill that triggers but skips its own doctrine is only half working.",
+  "cases": [
+    {
+      "query": "draw me an app icon for a habit tracker, 1024x1024, transparent background, save it to /tmp/icon.png",
+      "should_trigger": true,
+      "expect_routing": "references/transparency.md"
+    },
+    {
+      "query": "make a LinkedIn scroll-stop card with the headline 'We deleted 40% of our codebase' — square, bold type",
+      "should_trigger": true,
+      "expect_routing": "recipes/viral-linkedin.md"
+    },
+    {
+      "query": "I need a dashboard mockup for an analytics SaaS, dark UI, showing real revenue numbers not lorem ipsum",
+      "should_trigger": true,
+      "expect_routing": "recipes/ui-mockup.md"
+    },
+    {
+      "query": "generate a magazine cover for a podcast about failed startups, portrait, with a masthead",
+      "should_trigger": true,
+      "expect_routing": "recipes/editorial-cover.md"
+    },
+    {
+      "query": "take ~/Pictures/hero.png and change ONLY the sky to overcast, keep everything else identical",
+      "should_trigger": true,
+      "expect_routing": null
+    },
+    {
+      "query": "blend these two references into one shot — the product from a.png on the kitchen counter from b.png, morning light",
+      "should_trigger": true,
+      "expect_routing": "references/multi-reference.md"
+    },
+    {
+      "query": "build me an infographic explaining the four stages of our onboarding funnel, portrait, cream and navy",
+      "should_trigger": true,
+      "expect_routing": "recipes/infographic.md"
+    },
+    {
+      "query": "I need a product hero shot of a ceramic coffee mug, studio lighting, for the landing page",
+      "should_trigger": true,
+      "expect_routing": "recipes/product-photo.md"
+    },
+    {
+      "query": "cut out the background on this logo so it works on a dark header",
+      "should_trigger": true,
+      "expect_routing": "references/transparency.md"
+    },
+    {
+      "query": "we need a Meta ad creative — hook text over the product, square, punchy",
+      "should_trigger": true,
+      "expect_routing": "recipes/meta-ad.md"
+    },
+
+    {
+      "query": "my OPENAI_API_KEY returns 401 on chat completions, is the key expired?",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "describe what's in this screenshot in two sentences",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "OCR the text out of this receipt photo at ~/Downloads/receipt.jpg",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "compress every PNG under ./out/ to below 100KB, use oxipng",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "build me a README banner with our exact brand hex codes and the repo name — needs to match our other repos byte for byte",
+      "should_trigger": false,
+      "expect_routing": null,
+      "why": "Deterministic, part of a matching set, will be revised repeatedly. This is the HTML-render path, not the generate path. If pixeltamer fires here the description is over-broad."
+    },
+    {
+      "query": "write the alt text for the twelve images in this blog post",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "convert all the JPEGs in this folder to WebP at 80% quality",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "the CSS gradient on our hero section looks banded in Safari, can you fix it",
+      "should_trigger": false,
+      "expect_routing": null
+    },
+    {
+      "query": "generate a video intro for our YouTube channel, 10 seconds, animated logo",
+      "should_trigger": false,
+      "expect_routing": null,
+      "why": "gpt-image-2 is images only. Firing here means promising something we can't deliver."
+    },
+    {
+      "query": "what image dimensions should I use for an Open Graph card?",
+      "should_trigger": false,
+      "expect_routing": null,
+      "why": "A question about images, not a request to make one. Classic near-miss."
+    }
+  ]
+}
