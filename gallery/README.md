@@ -421,7 +421,20 @@ rectangle, no plinth, no surface, no cast shadow, no readable writing, no label
 text, no watermark.
 ```
 
-Every hex in that block landed. Charcoal outlines, cream base, electric blue and yellow throughout, mint on the robot's chest readout, coral on its shoe soles.
+All six hexes landed, and this is measured rather than eyeballed — nearest opaque colour in the generated set versus the requested value, before any optimisation:
+
+| Requested | Nearest generated | Δ per channel |
+|---|---|---|
+| charcoal `#212121` | `#212121` | **exact** |
+| cream `#FFF8E1` | `#FFF8E1` | **exact** |
+| electric `#0056D4` | `#0155D4` | (+1, −1, 0) |
+| yellow `#FFD166` | `#FED265` | (−1, +1, −1) |
+| coral `#FF6B6B` | `#FF6D68` | (0, +2, −3) |
+| mint `#A5D6A7` | `#A2D7AA` | (−3, +1, +3) |
+
+Two of six bit-exact, worst case 3 per channel. The committed PNGs measure slightly looser (worst case 5) because `pngquant` shifts colour too — about a third of the total drift is the optimisation step, not the model.
+
+Charcoal outlines, cream base, electric blue and yellow throughout, mint on the robot's chest readout, coral on its shoe soles.
 
 ### 9a. PetPacket — dog with document wallet
 
