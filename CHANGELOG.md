@@ -4,6 +4,49 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+### Added
+
+- **Transparency, properly wired — and it works on the codex backend.** `--background transparent` produces a real alpha channel. On the API path it's a request parameter; on codex there is no parameter, so the flag is translated into prompt instructions, the rewrite is announced on stderr, and the resulting PNG's alpha channel is checked with a warning if it came back RGB.
+
+  The codex half needs explaining, because pixeltamer's own docs claimed the opposite for exactly one commit. The OAuth Responses transport *accepts* a `background` field in its `image_generation` tool schema and then rejects the value at execution: `"Transparent background is not supported for this model."` The obvious reading — codex can't do transparency — is wrong. Codex's `image_gen` honours the same request made as prompt text. Parameter refused, sentence honoured. Verified across seven live generations: 46–89% fully transparent, clean cutouts including a translucent smoke wisp at 19% partial alpha and a glass snow globe at 13%. Scoped to `generate`; codex `edit`/`compose` use the transport that refuses the parameter and are declined rather than guessed at.
+
+- **`--output-format` and `--output-compression`** (API backend). `png` / `jpeg` / `webp`, mapping to the API's `output_format`. Auto-pinned to `png` when `--background transparent` is set, because that's what alpha requires.
+
+- **`--input-fidelity high|low`** on `edit` and `compose` (API backend). `high` preserves faces, logos, label typography and material texture that the default `low` reinterprets. It carries a doctrine change, not just a flag: all inputs are preserved at high fidelity but **only the first image gets the extra richness in texture**, so reference order is now a decision. `references/multi-reference.md` has a table per composite type.
+
+- **`references/transparency.md`** — the doctrine. The load-bearing rule is that prompt text outranks the flag: describe a backdrop, surface or cast shadow and you get a fully-opaque PNG with no error anywhere in the chain. Also covers naming the boundary rather than denying the background, the "around **and** between" clause that saves filigree, matching the edge clause to the material, keeping a collection consistent with one shared brand block, alpha-bbox trimming, and the four workflows transparency unlocks.
+
+- **Alpha gate in batch mode.** Entries whose `Format` says `transparent` must declare an alpha channel or they fail with `format says transparent but the PNG has no alpha channel`. Read from the PNG IHDR colour-type byte — no new dependency.
+
+- **`evals/`** — a trigger and routing eval suite. 20 queries, 10 should-trigger and 10 near-misses, driven through `claude -p`, scoring two things separately: did `Skill(pixeltamer)` fire, and was a reference or recipe file actually read afterwards. A skill that triggers but skips its own doctrine is half working, and that combination was previously unmeasurable. Claude Code's native `claude plugin eval` does this better; swap when it leaves early access.
+
+- **Gallery entry 9** — a four-asset transparent collection generated on the codex backend, each shown on four grounds with its measured alpha numbers.
+
+### Changed
+
+- **The skill description now mentions transparency.** It is the only thing deciding whether an agent reaches for pixeltamer, and it had no transparency vocabulary at all — "cut out the background on this logo" matched nothing. It also gained an explicit negative clause (compression, format conversion, resizing, describing images, video), replacing a `"anything else that ends in a PNG"` tail broad enough to catch "compress every PNG under 100KB".
+
+- **Chroma-key green screens are demoted to fallback** across `prompting.md`, `ui-mockup-prompting.md`, `infographic.md` and `post-process.md`. They earn their place for subjects the model won't cut cleanly and for codex `edit`/`compose`; they are no longer the default answer.
+
+- **`recipes/infographic.md`** gains a routing table for generated charts. OpenAI's own guidance lands where this repo already stood: a generated chart is raster artwork, so if the numbers are load-bearing, render deterministically and generate the illustration around it.
+
+### Fixed
+
+- **`--format` was aimed at the wrong API parameter, making output format unreachable.** It mapped to `response_format` (`url` / `b64_json`) — the DALL·E-era parameter that the spec says GPT image models ignore outright, since they always return base64. The parameter that actually selects the file format is `output_format`, and it was never wired. Transparency was therefore working by coincidence: png happens to be the server-side default. `--format` is kept as a documented legacy passthrough, because `OPENAI_IMAGE_BASE_URL` proxies may still implement the older surface.
+
+- **The extension guard only fired for transparent output.** `--output-format jpeg -o thing.png` silently wrote mislabeled bytes. Now symmetric across png/jpeg/webp, and an unspecified format is held to the API's png default rather than waved through.
+
+- **`--style` is a DALL·E-3 parameter.** Forwarding it to a GPT image model turns a harmless no-op flag into a 400. It is now only sent when the model name looks like DALL·E — keeping it usable for proxies that still serve those models — and warns otherwise.
+
+- **`SKILL-OC.md` still claimed codex could not edit or compose.** It has been able to since 0.3.0 via the OAuth transport.
+
+### Documented
+
+- **Transparent PNGs carry ghost colour under the alpha.** Fully-transparent pixels still store RGB, and gpt-image-2 usually leaves the scene there — measured at 62%, 68% and 87% of transparent pixels across test generations, with one clean run in four. Invisible in any alpha-aware viewer, a visible halo the moment something flattens naively. Scrub one-liner in `post-process.md`, plus its own troubleshooting entry.
+
+- **`pngquant` is alpha-safe** for this kind of work: 6.1 MB → 1.35 MB on the gallery set with coverage unchanged and partial alpha intact.
+
+
 ## [0.5.6] - 2026-08-20
 
 ### Fixed

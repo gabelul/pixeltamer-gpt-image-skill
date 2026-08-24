@@ -1,6 +1,6 @@
 ---
 name: pixeltamer
-description: Generate, edit, compose images via gpt-image-2. Two backends (OpenAI API or codex CLI), three modes (one-shot, batch, multi-reference). Use for any image-make request.
+description: Generate, edit, compose images via gpt-image-2, including transparent PNGs with a real alpha channel. Two backends (OpenAI API or codex CLI), four modes (generate, edit, compose, batch). Use for any image-make request, including "transparent PNG", "no background", "remove the background", "cut this out". Not for compressing/converting/resizing existing files, describing images, or video.
 version: 0.1.0
 author: gabelul
 tags: [image-generation, gpt-image, claude-code-skill, codex-cli, ai-image]
@@ -10,7 +10,9 @@ tags: [image-generation, gpt-image, claude-code-skill, codex-cli, ai-image]
 
 ## Triggers
 
-Make/generate/draw an image, poster, illustration, mockup, icon, sticker, sprite, hero, infographic, ad, scroll-stop, magazine cover, podcast art, product shot, banner, OG, social card, character sheet, app screen, dashboard. Edit/inpaint/mask an existing image. Compose 2–16 references into one.
+Make/generate/draw an image, poster, illustration, mockup, icon, sticker, sprite, hero, infographic, ad, scroll-stop, magazine cover, podcast art, product shot, banner, OG, social card, character sheet, app screen, dashboard. Edit/inpaint/mask an existing image. Compose 2–16 references into one. Transparent PNG / no background / remove background / cut out / alpha channel / asset to composite onto something else.
+
+**Not** triggers: compress, convert, resize an existing file; describe or OCR an image; video.
 
 ## Backends
 

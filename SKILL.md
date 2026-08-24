@@ -1,13 +1,18 @@
 ---
 name: pixeltamer
 description: |
-  Generate, edit, and compose images with gpt-image-2. Two backends — OpenAI API key
-  or codex CLI (uses your ChatGPT subscription, no key needed). Three modes —
-  one-shot generate, multi-image batch with verification, and multi-reference
-  composition (up to 16 inputs blended into one). Use when the user asks to make
-  an image, generate a poster, draw a mockup, design an icon, create an ad creative,
-  build an infographic, blend reference images, edit or inpaint an existing image,
-  or anything else that ends in a PNG.
+  Generate, edit, and compose images with gpt-image-2, including transparent PNGs
+  with a real alpha channel. Two backends — OpenAI API key or codex CLI (uses your
+  ChatGPT subscription, no key needed). Four modes — one-shot generate, edit or
+  inpaint an existing image, multi-reference composition (up to 16 inputs blended
+  into one), and multi-image batch with verification. Use when the user asks to
+  make an image, generate a poster, draw a mockup, design an icon or sticker,
+  create an ad creative, build an infographic, blend reference images, edit or
+  inpaint an existing image, or produce a cutout asset with a transparent
+  background — "transparent PNG", "no background", "remove the background",
+  "cut this out", "alpha channel", "works on any background". Not for editing
+  image files without regenerating them (compression, format conversion, resizing),
+  reading or describing existing images, or video.
 license: MIT
 metadata:
   author: gabelul
