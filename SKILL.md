@@ -179,6 +179,11 @@ pixeltamer compose \
 
 This is the killer feature. See `references/multi-reference.md` for the labeling pattern that actually works.
 
+Two flags decide whether the references survive the blend: `--input-fidelity high`
+preserves faces, logos and fine texture (default is `low`, which reinterprets
+them), and **reference order matters** — only the first `-i` gets the extra
+texture richness, so put the thing you can least afford to lose first.
+
 ### Mode 4 — Batch (multi-image plan with verification)
 
 For projects that need 4+ related images (a website's hero + features + footer + social), use the batch state machine. Workflow:
@@ -278,6 +283,7 @@ Pull only what's needed for the current job. Don't dump them all.
 | Don't have / don't want an API key | codex |
 | Edit an existing image (no mask) | Either backend — API or codex-OAuth |
 | Mask-based inpainting | API only — Responses API doesn't take a mask parameter |
+| Preserving a face / logo / label type across an edit | API only — `--input-fidelity high` |
 | A guaranteed output size when editing | API only — codex ignores `--size` for `edit`/`compose` and returns the input's aspect |
 | Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |

@@ -54,8 +54,8 @@ After setup → re-run `pixeltamer doctor` → proceed with request.
 | Mode | Subcommand | Endpoint | Codex? |
 |---|---|---|---|
 | one-shot | `generate` (alias: `gen`, also default) | `/images/generations` | yes |
-| edit/inpaint | `edit -i src.png` (+ optional `--mask`) | `/images/edits` | no |
-| compose 2–16 refs | `compose -i ref1 -i ref2 …` | `/images/edits` | no |
+| edit/inpaint | `edit -i src.png` (+ optional `--mask`) | `/images/edits` | yes (OAuth; no `--mask`, no `--size`) |
+| compose 2–16 refs | `compose -i ref1 -i ref2 …` | `/images/edits` | yes (OAuth; no `--input-fidelity`) |
 | batch w/ verification | `batch <prompts.md>` | dispatches per entry | yes (per entry backend) |
 
 ## Common flags
@@ -71,6 +71,8 @@ After setup → re-run `pixeltamer doctor` → proceed with request.
 --mask PATH            inpaint mask (edit only); white = regenerate
 --background           transparent|opaque|auto — both backends (generate only on codex)
 --output-format        png|jpeg|webp — API backend only
+--input-fidelity       high|low — edit/compose, API only; high preserves faces/logos.
+                       Only the FIRST -i gets extra texture richness — order matters.
 --backend api|codex    override auto-detect
 ```
 

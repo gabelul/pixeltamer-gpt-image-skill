@@ -166,6 +166,9 @@ _die_if_api_only_flag() {
       --output-format|--output-format=*|--output-compression|--output-compression=*)
         _die "\`${arg%%=*}\` requires the API backend — both codex transports always return PNG. Set OPENAI_API_KEY, or pass --backend api."
         ;;
+      --input-fidelity|--input-fidelity=*)
+        _die "\`--input-fidelity\` requires the API backend — the codex Responses transport doesn't expose it. Set OPENAI_API_KEY, or pass --backend api."
+        ;;
     esac
   done
 }
@@ -482,7 +485,7 @@ case "${1:-}" in
     shift
     cmd_doctor "$@"
     ;;
-  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--format|--moderation|--user|--concurrency|--model|--mask)
+  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--input-fidelity|--format|--moderation|--user|--concurrency|--model|--mask)
     # Bare flags = implicit `generate`.
     cmd_generate "$@"
     ;;

@@ -124,6 +124,44 @@ def _validate_size(size: str) -> None:
 ALPHA_CAPABLE_FORMATS = ("png", "webp")
 
 
+# What each output_format is allowed to be called on disk. Writing WebP bytes
+# into a .png is the kind of thing nothing complains about until some downstream
+# tool sniffs the extension instead of the magic bytes.
+_FORMAT_EXTS = {
+    "png": (".png",),
+    "jpeg": (".jpg", ".jpeg"),
+    "webp": (".webp",),
+}
+
+
+def _check_extension_matches(fmt: str | None, out: str | None) -> None:
+    """Refuse an output path whose extension contradicts the requested format.
+
+    Runs for every format, not just transparent ones — `--output-format jpeg
+    -o thing.png` was silently writing mislabeled bytes.
+
+    @param fmt - resolved output_format, or None when the API default applies
+    @param out - the -o value, or None
+    """
+    if not out:
+        return
+    # No explicit format means the API default (png) — hold it to the png rule
+    # rather than letting an unlabelled request write anything anywhere.
+    effective = fmt or "png"
+    allowed = _FORMAT_EXTS.get(effective)
+    if not allowed:
+        return
+    ext = Path(out).suffix.lower()
+    # An extension we don't recognise at all is the caller's business.
+    known = {e for exts in _FORMAT_EXTS.values() for e in exts}
+    if ext in known and ext not in allowed:
+        sys.exit(
+            f"ERROR: output format {effective} writes {'/'.join(allowed)} bytes, "
+            f"but -o ends in {ext}. Fix the extension or pass "
+            f"--output-format to match."
+        )
+
+
 def _resolve_output_format(a: argparse.Namespace) -> str | None:
     """Work out the `output_format` value to send, and guard the alpha footguns.
 
@@ -158,17 +196,6 @@ def _resolve_output_format(a: argparse.Namespace) -> str | None:
             f"ERROR: --background transparent needs an alpha-capable format; "
             f"{fmt} has no alpha channel. Use --output-format png (or webp)."
         )
-
-    # Extension check runs against the *resolved* format, so it catches the
-    # common case too: `--background transparent -o thing.jpg` with no explicit
-    # --output-format. That would write PNG bytes into a .jpg file.
-    if a.out:
-        ext = Path(a.out).suffix.lower()
-        if ext in (".jpg", ".jpeg"):
-            sys.exit(
-                f"ERROR: --background transparent writes {fmt} bytes, but -o ends "
-                f"in {ext}. Give the output a .{fmt} extension."
-            )
 
     return fmt
 
@@ -345,11 +372,23 @@ def cmd_generate(a: argparse.Namespace) -> None:
     }
     if a.quality:
         payload["quality"] = a.quality
+    # `style` is a DALL-E-3 parameter. gpt-image models reject it, so sending it
+    # turns a harmless no-op flag into a 400. Only forward it when the model
+    # actually looks like DALL-E — which keeps it working for anyone pointing
+    # OPENAI_IMAGE_BASE_URL at a proxy that still serves those models.
     if a.style:
-        payload["style"] = a.style
+        if "dall-e" in a.model.lower():
+            payload["style"] = a.style
+        else:
+            print(
+                f"WARNING: --style is DALL-E-3 only and is ignored by {a.model}; "
+                "dropping it from the request.",
+                file=sys.stderr,
+            )
     if a.background:
         payload["background"] = a.background
     out_fmt = _resolve_output_format(a)
+    _check_extension_matches(out_fmt, a.out)
     if out_fmt:
         payload["output_format"] = out_fmt
     if a.output_compression is not None:
@@ -402,9 +441,12 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     }
     if a.quality:
         fields["quality"] = a.quality
+    if getattr(a, "input_fidelity", None):
+        fields["input_fidelity"] = a.input_fidelity
     if a.background:
         fields["background"] = a.background
     out_fmt = _resolve_output_format(a)
+    _check_extension_matches(out_fmt, a.out)
     if out_fmt:
         fields["output_format"] = out_fmt
     if a.output_compression is not None:
@@ -508,6 +550,10 @@ def main() -> None:
     e.add_argument("-o", "--out")
     e.add_argument("--model", default=DEFAULT_MODEL)
     e.add_argument("--quality", **common_quality)
+    e.add_argument("--input-fidelity", choices=["high", "low"],
+                   help="high preserves faces, logos and fine texture from the "
+                        "input images (default low). Only the FIRST image gets "
+                        "the extra texture richness — order your refs accordingly")
     e.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
     e.add_argument("--output-format", choices=["png", "jpeg", "webp"])
@@ -530,6 +576,10 @@ def main() -> None:
     c.add_argument("-o", "--out")
     c.add_argument("--model", default=DEFAULT_MODEL)
     c.add_argument("--quality", **common_quality)
+    c.add_argument("--input-fidelity", choices=["high", "low"],
+                   help="high preserves faces, logos and fine texture from the "
+                        "input images (default low). Only the FIRST image gets "
+                        "the extra texture richness — order your refs accordingly")
     c.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
     c.add_argument("--output-format", choices=["png", "jpeg", "webp"])

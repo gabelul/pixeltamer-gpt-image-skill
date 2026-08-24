@@ -100,6 +100,7 @@ The parser, verifier, and status writer are pure functions with dependency injec
 | Latency per image | ~10–20s | ~30–90s (reasoning loop) |
 | Transparent background (real alpha) | ✅ param on all modes | ✅ `generate` only — no param, so the flag becomes prompt text + a post-gen alpha check |
 | Output file format (png / jpeg / webp) | ✅ | ❌ — both transports always return PNG |
+| Input fidelity (preserve faces / logos on edit+compose) | ✅ `--input-fidelity high` | ❌ — transport doesn't expose it |
 | Edit / inpaint | ✅ | ❌ |
 | Multi-reference compose | ✅ (up to 16 refs) | ❌ |
 | Mask / region edit | ✅ | ❌ |
