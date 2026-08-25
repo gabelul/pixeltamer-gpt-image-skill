@@ -154,6 +154,19 @@ rembg i input.png output.png
 
 For green-screen / chroma-key removal of model-generated solid-color backgrounds:
 
+**Sample the matte, don't assume it.** You asked for `#00ff00`; the model gave you
+something near it. Keying the colour you requested leaves a fringe of the colour
+you actually got. Read it off a corner first:
+
+```bash
+# What colour is the background really?
+magick image.png -format "%[pixel:p{2,2}]\n" info:
+```
+
+Then key *that* value. Same reasoning as `--matte-color auto` in
+Wangnov/gpt-image-2-skill, which samples the source edges rather than trusting
+the prompt.
+
 ```bash
 # ImageMagick — strip exact green
 magick image.png -fuzz 8% -transparent "#00ff00" out.png

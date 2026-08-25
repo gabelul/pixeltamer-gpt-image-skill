@@ -52,6 +52,12 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 - **Flatten a transparent PNG before using it as a style reference.** It carries premultiplied edges, the ghost RGB under its transparent pixels, and alpha artifacts into the edit. Relevant now that the skill produces alpha assets people will naturally feed back in as `-i`.
 
+- **Codex token expiry on the OAuth path.** `edit`/`compose` read the access token straight out of `~/.codex/auth.json` and don't refresh it, so an expired token means `codex login`. The same file carries a `refresh_token` and the endpoint is `https://auth.openai.com/oauth/token`, so this is recoverable — documented in `codex-backend.md` rather than silently left as a mystery 401.
+
+- **Sample the matte colour before keying it.** You asked for `#00ff00`, the model produced something near it, and keying the requested value leaves a fringe of the actual one. Read the corner pixel first. Same reasoning as `--matte-color auto` in Wangnov/gpt-image-2-skill.
+
+- **`--moderation low`** named as the escape hatch on content refusals, where the account allows it.
+
 - **`pngquant` is alpha-safe** for this kind of work: 6.1 MB → 1.35 MB on the gallery set with coverage unchanged and partial alpha intact.
 
 

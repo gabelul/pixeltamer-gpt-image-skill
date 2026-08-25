@@ -124,7 +124,7 @@ pixeltamer generate -p "..." -n 4 | head -1  # grab the first
 | `HTTP 403` | Org not verified for gpt-image-2 | Verify at platform.openai.com |
 | `HTTP 429` | Rate limit | Pixeltamer retries automatically; if it surfaces, your account hit a hard cap |
 | `HTTP 400 — invalid size` | Out-of-range WxH | Stay under 3840px max edge, multiples of 16, ≤3:1 ratio |
-| Empty `data` array | Content moderation rejected | Rephrase, drop sensitive elements |
+| Empty `data` array | Content moderation rejected | Rephrase and drop the element that tripped it. `--moderation low` is the escape hatch where your account allows it — it loosens filtering, it doesn't disable it |
 | Opaque PNG despite `--background transparent` | Prompt described a backdrop / scene / cast shadow — prompt text outranks the flag | Strip environment words, add the constraint block from `references/transparency.md` |
 | Faces or logos come back "similar but wrong" on an edit | `input_fidelity` defaults to `low` | Pass `--input-fidelity high`; put the critical reference first |
 | `HTTP 400` mentioning `background` | Org or model doesn't have transparency enabled (it's preview on gpt-image-2) | Fall back to chroma-key + `post-process.md` |

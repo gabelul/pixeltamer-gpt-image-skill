@@ -158,3 +158,21 @@ model — image models re-render text rather than preserving it.
 
 - This uses the consumer ChatGPT subscription endpoint via `codex exec`. Programmatic use of consumer subscriptions sits in a grey area of OpenAI's terms; check before scripting heavy automated batches.
 - Output file path parsing depends on codex printing the path. If a future codex version changes its stdout format, the recovery fallback (scanning `~/.codex/generated_images/` for the newest PNG) still gets you the file.
+
+## Token expiry on the OAuth path
+
+`generate` goes through the `codex` CLI, which manages its own auth — nothing to
+think about.
+
+`edit` and `compose` go through `pixeltamer_codex_oauth.py`, which reads the
+access token out of `~/.codex/auth.json` directly. **It does not refresh it.** An
+expired token surfaces as a 401 with `token_expired`, and the fix is `codex
+login`.
+
+That's a real gap rather than a design choice: the same `auth.json` carries a
+`refresh_token`, and the refresh endpoint is
+`https://auth.openai.com/oauth/token`. One refresh plus one retry would recover
+silently. Not implemented yet — the reason for caution is that `auth.json` is
+codex's file, and writing a rotated token back into it risks breaking the login
+for the CLI too. An in-memory refresh that never touches the file would sidestep
+that.
