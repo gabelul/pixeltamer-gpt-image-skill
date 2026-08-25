@@ -29,6 +29,7 @@ Never write a prompt from scratch when a similar pattern exists in our recipes o
 | Transparent PNG assets — icons, logos, cutouts, chart layers, anything composited onto a background you don't control | `references/transparency.md` | Native alpha via `--background transparent`, the prompt rules that keep it, verification, compositing |
 | Compress, resize, convert, crop, alpha-extract a generated PNG | `references/post-process.md` | Post-generation manipulation one-liners |
 | UI / dashboard / app-screen prompts (paired with `recipes/ui-mockup.md`) | `references/ui-mockup-prompting.md` | UI dialect, asset codification |
+| Consuming pixeltamer from an agent or script — structured results, error codes, retry decisions | `references/json-output.md` | The `--json` envelope: one object on stdout always, typed codes, three-valued `retryable`, alpha semantics |
 | API backend troubleshooting, env vars, custom hosts (jmrai, ZenMux, OpenRouter) | `references/api-backend.md` | OpenAI API specifics |
 | Codex backend troubleshooting, invocation patterns | `references/codex-backend.md` | Codex CLI specifics |
 

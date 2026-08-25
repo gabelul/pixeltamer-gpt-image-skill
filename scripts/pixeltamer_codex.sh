@@ -56,6 +56,8 @@ count=1
 reasoning="medium"
 debug=0
 background=""
+json_mode=0
+started_ms=$(( $(date +%s) * 1000 ))
 images=()
 
 while [[ $# -gt 0 ]]; do
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     -i|--image)     images+=("${2:-}"); shift 2 ;;
     --reasoning)    reasoning="${2:-}"; shift 2 ;;
     --background)   background="${2:-}"; shift 2 ;;
+    --json)         json_mode=1; shift ;;
     --debug)        debug=1; shift ;;
     -h|--help)      usage ;;
     *)              echo "$prog: unknown arg: $1" >&2; usage ;;
@@ -595,7 +598,26 @@ fi
 alpha_failures=0
 for p in "${final_paths[@]}"; do _alpha_gate "$p" || alpha_failures=$((alpha_failures + 1)); done
 
-# stdout stays a clean list of the final paths for callers; status to stderr.
+# stdout is either a clean list of paths, or exactly one JSON object. Status
+# always goes to stderr so it can never contaminate either shape.
+if (( json_mode == 1 )); then
+  if ! _have node; then
+    printf '{"schema_version":1,"ok":false,"command":"generate","backend":"codex","error":{"code":"internal_error","message":"node is required for --json","retryable":"no"}}\n'
+    exit 1
+  fi
+  # The emitter re-measures alpha and applies the transparency postcondition
+  # itself, so ok/false here comes from the same rule the API path uses.
+  if [[ "$background" == "transparent" ]]; then
+    node "$script_dir/lib/emit-json.mjs" ok generate codex \
+      "$(( $(date +%s) * 1000 - started_ms ))" --transparent-requested "${final_paths[@]}"
+  else
+    node "$script_dir/lib/emit-json.mjs" ok generate codex \
+      "$(( $(date +%s) * 1000 - started_ms ))" "${final_paths[@]}"
+  fi
+  (( alpha_failures > 0 )) && exit 1
+  exit 0
+fi
+
 for p in "${final_paths[@]}"; do echo "$p"; done
 
 # Paths are still printed — the files exist and were paid for — but exit status

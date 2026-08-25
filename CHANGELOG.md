@@ -6,6 +6,18 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ### Added
 
+- **`--json` structured output** on `generate`, `edit` and `compose`, for the agents that drive this thing far more than people do. One guarantee holds the design up: in JSON mode stdout carries **exactly one JSON object on every path out of the program** — success, bad flag, missing auth, upstream failure, or an unhandled exception in our own code. A mode that emits prose on one unlucky branch is worse than none, because callers write `JSON.parse(stdout)` and it works until it doesn't. Human output stays on stderr, as it already did.
+
+  The envelope carries `schema_version`, `ok`, `command`, `backend`, `duration_ms` and `outputs[]` — an array because `-n` exists, and populated even on failure, since a partial run's files are real and were paid for. Errors carry a stable `code`, a human `message`, and a **three-valued `retryable`** (`yes`/`no`/`unknown`). `unknown` earns its place: a timeout after the request was sent may already have produced an image, so calling it retryable invites a duplicate you pay for twice.
+
+  Alpha reporting distinguishes `measured: false` with `null` percentages from a genuine `0`. Zero reads as "definitely opaque"; null means "we couldn't tell", and only one of those justifies a retry.
+
+  `alpha_not_observed`: asking for `--background transparent` and getting an opaque image is now `ok: false` on both backends, not a success with a warning. `ok: true` means the asset contract was met, not that bytes reached disk.
+
+  `batch` refuses `--json` in the contract's own shape (`unsupported_on_backend`) rather than ignoring the flag and printing prose. Exit codes are unchanged — `--json` adds a body, it doesn't renumber `2`/`124`/`127`.
+
+  Shaped by two codex reviews which corrected the original proposal on four points: `outputs[]` rather than a singular `path`, ambiguous `alpha.present`, the wrong claim that exit codes were 0/1, and `batch` being a fourth image-producing entry point. Recorded in `docs/dev-docs/design-json-output.md`.
+
 - **Transparency is now a checked postcondition, not a hope.** Asking for `--background transparent` and getting a fully-opaque image is the signature failure of this whole feature — a valid RGBA file where every pixel is opaque, which passes every header check and is useless for the one job it had. `scripts/lib/image-dimensions.mjs` gained a real PNG decoder (stdlib `zlib`, IDAT inflate plus scanline unfiltering, no dependency) that measures actual coverage. The codex path now **fails** on under 1% transparent instead of warning, keeping the file but returning non-zero; batch mode applies the same gate. Cross-validated against Pillow on real assets: 62.7/1.9, 46.4/13.2, 52.0/1.8, 62.9/1.4 — identical to the decimal.
 
 - **Palette PNGs with `tRNS` are recognised as transparent.** `pngquant` — which `post-process.md` recommends — converts RGBA to a palette plus a `tRNS` chunk. That's real transparency, but the old header check only looked for colour types 4 and 6, so anything that went through our own documented optimisation step read as opaque. The four committed gallery assets were in exactly that state.

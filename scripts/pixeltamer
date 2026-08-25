@@ -228,6 +228,16 @@ cmd_compose() {
 }
 
 cmd_batch() {
+  # An image-producing entry point must never answer a --json request with
+  # prose. Batch has its own state machine and no envelope yet, so it refuses
+  # in the contract's own shape rather than ignoring the flag.
+  for arg in "$@"; do
+    if [[ "$arg" == "--json" ]]; then
+      printf '{"schema_version":1,"ok":false,"command":"batch","error":{"code":"unsupported_on_backend","message":"batch has no --json envelope yet; it writes status back into prompts.md instead","retryable":"no"}}\n'
+      exit 1
+    fi
+  done
+
   # Multi-image state-machine flow. Delegates to verify-images.mjs which
   # parses prompts.md, calls the right backend per entry, and verifies output.
   if ! _have node; then
@@ -485,7 +495,7 @@ case "${1:-}" in
     shift
     cmd_doctor "$@"
     ;;
-  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--input-fidelity|--format|--moderation|--user|--concurrency|--model|--mask)
+  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--input-fidelity|--json|--format|--moderation|--user|--concurrency|--model|--mask)
     # Bare flags = implicit `generate`.
     cmd_generate "$@"
     ;;

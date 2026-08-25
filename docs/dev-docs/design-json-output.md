@@ -1,6 +1,6 @@
 # Design review — structured (`--json`) output
 
-**Status:** proposed, not built. Parked for 0.7.0.
+**Status:** built. Shipped as `--json` on generate/edit/compose; see `references/json-output.md` for the contract. This note keeps the review that shaped it.
 **Reviewer:** codex (gpt-5.6), asked 2026-08-25 with the full cost picture.
 
 ## Why this exists

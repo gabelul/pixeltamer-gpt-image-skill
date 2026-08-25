@@ -38,7 +38,186 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
+
+# ------------------------------------------------------------------ json mode
+
+# The contract, in one sentence: with --json, stdout carries exactly one JSON
+# object, on every path out of this program, no exceptions. A JSON mode that
+# emits prose on one unlucky branch is worse than no JSON mode, because a caller
+# writes `JSON.parse(stdout)` and it works right up until it doesn't.
+#
+# Getting there without typing all ~75 exit sites: raise instead of exiting, and
+# catch everything at the top. `_fail()` carries a real code where we have one;
+# a bare `sys.exit("...")` from older code is caught and reported as
+# `internal_error` with its message preserved. Nothing escapes as prose.
+SCHEMA_VERSION = 1
+
+# Set by a pre-scan of argv, because argparse prints its own prose and exits
+# before any of our code runs.
+JSON_MODE = "--json" in sys.argv[1:]
+
+# Paths collected in JSON mode instead of printed as they land.
+_outputs: list[Path] = []
+
+# Set when the caller asked for transparency, so the result can be checked
+# against the request rather than just reported.
+_requested_transparent = False
+
+
+class PixeltamerError(Exception):
+    """A failure with a machine-readable code.
+
+    @param code - stable identifier the caller branches on
+    @param message - human sentence; never parse this
+    @param retryable - "yes" | "no" | "unknown". Unknown matters: a timeout
+        after the request was sent may have produced an image, and retrying
+        blindly duplicates work you already paid for.
+    @param details - optional structured context (http_status, field, ...)
+    """
+
+    def __init__(self, code: str, message: str, retryable: str = "no", **details):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.details = details
+
+
+def _fail(code: str, message: str, retryable: str = "no", **details) -> NoReturn:
+    raise PixeltamerError(code, message, retryable, **details)
+
+
+def _deliver(path: Path) -> None:
+    """Hand a finished file to the caller, however this run reports results."""
+    if JSON_MODE:
+        _outputs.append(path)
+    else:
+        print(path, flush=True)
+
+
+def _describe_output(path: Path) -> dict:
+    """Metadata for one produced file, including honest alpha reporting."""
+    entry: dict = {"path": str(path)}
+    try:
+        entry["bytes"] = path.stat().st_size
+    except OSError:
+        pass
+    entry["format"] = path.suffix.lstrip(".").lower() or None
+
+    probe = _probe_png(path)
+    if probe:
+        entry.update(probe)
+    return entry
+
+
+def _probe_png(path: Path) -> dict | None:
+    """Read dimensions and alpha coverage via the shared node reader.
+
+    Shelling out to node keeps one implementation of PNG semantics for the whole
+    project. Writing a second alpha decoder here in Python is how the bash and
+    Python paths would quietly start disagreeing about what "transparent" means.
+    """
+    helper = Path(__file__).resolve().parent / "lib" / "image-dimensions.mjs"
+    if not helper.is_file():
+        return None
+    script = (
+        "import(process.argv[1]).then(m => {"
+        "const d = m.readImageDimensions(process.argv[2]);"
+        "const c = m.readAlphaCoverage(process.argv[2]);"
+        "process.stdout.write(JSON.stringify({d, c}));"
+        "}).catch(() => process.stdout.write('{}'));"
+    )
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["node", "-e", script, str(helper), str(path)],
+            capture_output=True, text=True, timeout=30,
+        ).stdout
+        raw = json.loads(out or "{}")
+    except Exception:
+        return None
+
+    result: dict = {}
+    dims = raw.get("d")
+    if dims:
+        result["width"] = dims.get("width")
+        result["height"] = dims.get("height")
+
+    cov = raw.get("c")
+    if cov:
+        # measured=true only when we genuinely decoded pixels. Reporting 0 for
+        # an unmeasured file would read as "definitely opaque", which is a lie.
+        result["alpha"] = {
+            "present": True,
+            "measured": True,
+            "transparent_pct": cov.get("transparentPct"),
+            "partial_pct": cov.get("partialPct"),
+        }
+    else:
+        result["alpha"] = {
+            "present": None, "measured": False,
+            "transparent_pct": None, "partial_pct": None,
+        }
+    return result
+
+
+def _check_transparency_postcondition(described: list[dict]) -> None:
+    """Asking for transparency and getting an opaque image is a failure.
+
+    `ok: true` has to mean "the asset contract was met", not "a file was
+    written" — otherwise the envelope reproduces the exact silent failure the
+    alpha metrics exist to expose. Only fires on measured files: an unmeasurable
+    one is unknown, not bad.
+    """
+    if not _requested_transparent:
+        return
+    opaque = [
+        d for d in described
+        if (d.get("alpha") or {}).get("measured")
+        and (d["alpha"].get("transparent_pct") or 0) < 1
+    ]
+    if opaque:
+        _fail(
+            "alpha_not_observed",
+            f"--background transparent was requested but {len(opaque)} of "
+            f"{len(described)} output(s) came back effectively opaque. The prompt "
+            f"most likely described a backdrop, surface or cast shadow, which "
+            f"overrides the request.",
+            "no",
+            opaque_outputs=[d["path"] for d in opaque],
+        )
+
+
+def _emit_success(command: str, backend: str, started: float) -> None:
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "ok": True,
+        "command": command,
+        "backend": backend,
+        "duration_ms": int((time.time() - started) * 1000),
+        "outputs": [_describe_output(p) for p in _outputs],
+    }
+    print(json.dumps(payload), flush=True)
+
+
+def _emit_error(command: str, backend: str, started: float,
+                code: str, message: str, retryable: str, details: dict) -> None:
+    error: dict = {"code": code, "message": message, "retryable": retryable}
+    error.update({k: v for k, v in (details or {}).items() if v is not None})
+    payload = {
+        "schema_version": SCHEMA_VERSION,
+        "ok": False,
+        "command": command,
+        "backend": backend,
+        "duration_ms": int((time.time() - started) * 1000),
+        # Files that landed before the failure are still real and still cost
+        # money. Report them rather than pretending the run produced nothing.
+        "outputs": [_describe_output(p) for p in _outputs],
+        "error": error,
+    }
+    print(json.dumps(payload), flush=True)
+
 
 # --------------------------------------------------------------------------- env
 
@@ -131,30 +310,32 @@ def _validate_size(size: str) -> None:
     try:
         w, h = (int(x) for x in size.lower().split("x", 1))
     except Exception:
-        sys.exit(f"ERROR: --size must be WxH, 2K, 4K or 'auto' (got {size!r})")
+        _fail("invalid_size", f"--size must be WxH, 2K, 4K or 'auto' (got {size!r})", field="size")
     if w <= 0 or h <= 0:
-        sys.exit(f"ERROR: --size dimensions must be positive (got {size!r})")
+        _fail("invalid_size", f"--size dimensions must be positive (got {size!r})", field="size")
     # Inclusive: 3840x2160 is the documented maximum, not one past it.
     if max(w, h) > MAX_SIDE:
-        sys.exit(f"ERROR: longest side must be ≤ {MAX_SIDE}px (got {max(w, h)}px)")
+        _fail("invalid_size", f"longest side must be ≤ {MAX_SIDE}px (got {max(w, h)}px)", field="size")
     off = [f"{name}={v}" for name, v in (("width", w), ("height", h))
            if v % SIZE_EDGE_MULTIPLE]
     if off:
-        sys.exit(
-            f"ERROR: both edges must be divisible by {SIZE_EDGE_MULTIPLE} "
+        _fail(
+            "invalid_size",
+            f"both edges must be divisible by {SIZE_EDGE_MULTIPLE} "
             f"({', '.join(off)}). Nearest valid: "
             f"{round(w / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}x"
             f"{round(h / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}"
         )
     if w * h > MAX_TOTAL_PIXELS:
-        sys.exit(
-            f"ERROR: total pixels must be ≤ {MAX_TOTAL_PIXELS:,} "
+        _fail(
+            "invalid_size",
+            f"total pixels must be ≤ {MAX_TOTAL_PIXELS:,} "
             f"(got {w * h:,} for {w}x{h}). 3840x2160 and 2880x2880 both sit "
             f"exactly on the cap."
         )
     ratio = max(w, h) / min(w, h)
     if ratio > MAX_RATIO:
-        sys.exit(f"ERROR: aspect ratio must be ≤ {MAX_RATIO:.0f}:1 (got {ratio:.2f}:1)")
+        _fail("invalid_size", f"aspect ratio must be ≤ {MAX_RATIO:.0f}:1 (got {ratio:.2f}:1)", field="size")
 
 
 # ------------------------------------------------------------- transparency
@@ -196,10 +377,11 @@ def _check_extension_matches(fmt: str | None, out: str | None) -> None:
     # An extension we don't recognise at all is the caller's business.
     known = {e for exts in _FORMAT_EXTS.values() for e in exts}
     if ext in known and ext not in allowed:
-        sys.exit(
-            f"ERROR: output format {effective} writes {'/'.join(allowed)} bytes, "
-            f"but -o ends in {ext}. Fix the extension or pass "
-            f"--output-format to match."
+        _fail(
+            "invalid_argument",
+            f"output format {effective} writes {'/'.join(allowed)} bytes, but -o "
+            f"ends in {ext}. Fix the extension or pass --output-format to match.",
+            field="out",
         )
 
 
@@ -233,9 +415,11 @@ def _resolve_output_format(a: argparse.Namespace) -> str | None:
         fmt = "png"
 
     if fmt not in ALPHA_CAPABLE_FORMATS:
-        sys.exit(
-            f"ERROR: --background transparent needs an alpha-capable format; "
-            f"{fmt} has no alpha channel. Use --output-format png (or webp)."
+        _fail(
+            "invalid_argument",
+            f"--background transparent needs an alpha-capable format; {fmt} has "
+            f"no alpha channel. Use --output-format png (or webp).",
+            field="output-format",
         )
 
     return fmt
@@ -310,7 +494,7 @@ def _post_multipart(path: str, fields: dict, files: dict[str, list[str]]) -> dic
         for raw in paths:
             fp = Path(raw).expanduser()
             if not fp.exists():
-                sys.exit(f"ERROR: file not found: {fp}")
+                _fail("input_not_found", f"file not found: {fp}", path=str(fp))
             mime = mimetypes.guess_type(fp.name)[0] or "image/png"
             # Multi-reference: when more than one image is attached for a single
             # field, send them as field[] entries (PHP/OpenAI convention).
@@ -442,10 +626,15 @@ def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]
 
     # Request order, and only once everything has settled.
     for path in landed:
-        print(path, flush=True)
+        _deliver(path)
 
     if failures:
-        sys.exit(1)
+        _fail(
+            "partial_failure",
+            f"{len(landed)}/{n} images generated; {len(failures)} failed",
+            "unknown",
+            requested=n, produced=len(landed), failed=len(failures),
+        )
     return landed
 
 
@@ -477,6 +666,8 @@ def cmd_generate(a: argparse.Namespace) -> None:
             )
     if a.background:
         payload["background"] = a.background
+        global _requested_transparent
+        _requested_transparent = _requested_transparent or a.background == "transparent"
     out_fmt = _resolve_output_format(a)
     _check_extension_matches(out_fmt, a.out)
     if out_fmt:
@@ -498,8 +689,8 @@ def cmd_generate(a: argparse.Namespace) -> None:
         data = _post_json("/images/generations", payload)
         items = data.get("data") or []
         if not items:
-            sys.exit(f"ERROR: empty response: {json.dumps(data)[:500]}")
-        print(_write_item(items[0], paths[0]), flush=True)
+            _fail("response_invalid", f"empty response from the image API: {json.dumps(data)[:300]}", "unknown")
+        _deliver(_write_item(items[0], paths[0]))
         return
     _run_parallel(
         n=a.n,
@@ -515,9 +706,9 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     _validate_size(a.size)
     refs = list(a.image)
     if not refs:
-        sys.exit("ERROR: at least one --image required")
+        _fail("invalid_argument", "at least one --image required", field="image")
     if len(refs) > MAX_REFERENCE_IMAGES:
-        sys.exit(f"ERROR: at most {MAX_REFERENCE_IMAGES} reference images allowed")
+        _fail("invalid_argument", f"at most {MAX_REFERENCE_IMAGES} reference images allowed", field="image")
     if mode == "edit" and len(refs) > 1:
         sys.exit(
             "ERROR: `edit` accepts a single source image. For multi-reference "
@@ -536,6 +727,8 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
         fields["input_fidelity"] = a.input_fidelity
     if a.background:
         fields["background"] = a.background
+        global _requested_transparent
+        _requested_transparent = _requested_transparent or a.background == "transparent"
     out_fmt = _resolve_output_format(a)
     _check_extension_matches(out_fmt, a.out)
     if out_fmt:
@@ -553,7 +746,7 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     files: dict[str, list[str]] = {"image": refs}
     if getattr(a, "mask", None):
         if mode != "edit":
-            sys.exit("ERROR: --mask is only valid with `edit` (single source).")
+            _fail("invalid_argument", "--mask is only valid with `edit` (single source)", field="mask")
         files["mask"] = [a.mask]
 
     paths = _output_paths(a.out, a.n)
@@ -565,8 +758,8 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
         data = _call()
         items = data.get("data") or []
         if not items:
-            sys.exit(f"ERROR: empty response: {json.dumps(data)[:500]}")
-        print(_write_item(items[0], paths[0]), flush=True)
+            _fail("response_invalid", f"empty response from the image API: {json.dumps(data)[:300]}", "unknown")
+        _deliver(_write_item(items[0], paths[0]))
         return
     _run_parallel(n=a.n, concurrency=a.concurrency, fn=_call, paths=paths)
 
@@ -581,8 +774,23 @@ def cmd_compose(a: argparse.Namespace) -> None:
 
 # ---------------------------------------------------------------------------- cli
 
+class _JsonAwareParser(argparse.ArgumentParser):
+    """argparse exits 2 with prose on a bad flag, before our code ever runs.
+
+    In JSON mode that would be a stray non-JSON line on stdout — the one thing
+    the contract forbids — so errors become PixeltamerError and go out through
+    the same envelope as everything else. Exit code 2 is preserved: usage errors
+    have always meant 2 here and normalising that would break callers.
+    """
+
+    def error(self, message):
+        if JSON_MODE:
+            raise PixeltamerError("invalid_argument", message, "no", exit_code=2)
+        super().error(message)
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(
+    ap = _JsonAwareParser(
         prog="pixeltamer_api.py",
         description="Call gpt-image-2 over the OpenAI-compatible Images API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -625,6 +833,8 @@ def main() -> None:
                    help="compression level for jpeg/webp output only")
     g.add_argument("--format", choices=["url", "b64_json"],
                    help="legacy response_format; ignored by gpt-image models")
+    g.add_argument("--json", action="store_true",
+                   help="emit one JSON object on stdout instead of paths")
     g.add_argument("--moderation", choices=["auto", "low"])
     g.add_argument("--user")
     g.set_defaults(fn=cmd_generate)
@@ -654,6 +864,8 @@ def main() -> None:
     e.add_argument("--output-compression", type=int, metavar="0-100")
     e.add_argument("--format", choices=["url", "b64_json"],
                    help="legacy response_format; ignored by gpt-image models")
+    e.add_argument("--json", action="store_true",
+                   help="emit one JSON object on stdout instead of paths")
     e.add_argument("--moderation", choices=["auto", "low"])
     e.add_argument("--user")
     e.set_defaults(fn=cmd_edit)
@@ -682,12 +894,67 @@ def main() -> None:
     c.add_argument("--output-compression", type=int, metavar="0-100")
     c.add_argument("--format", choices=["url", "b64_json"],
                    help="legacy response_format; ignored by gpt-image models")
+    c.add_argument("--json", action="store_true",
+                   help="emit one JSON object on stdout instead of paths")
     c.add_argument("--moderation", choices=["auto", "low"])
     c.add_argument("--user")
     c.set_defaults(fn=cmd_compose)
 
-    args = ap.parse_args()
-    args.fn(args)
+    started = time.time()
+    command = "unknown"
+    backend = "api"
+
+    try:
+        args = ap.parse_args()
+        command = getattr(args, "cmd", "unknown") or "unknown"
+        args.fn(args)
+    except PixeltamerError as e:
+        if not JSON_MODE:
+            print(f"ERROR: {e.message}", file=sys.stderr)
+            sys.exit(e.details.get("exit_code", 1))
+        _emit_error(command, backend, started, e.code, e.message,
+                    e.retryable, {k: v for k, v in e.details.items()
+                                  if k != "exit_code"})
+        sys.exit(e.details.get("exit_code", 1))
+    except SystemExit as e:
+        # Older call sites still use sys.exit("ERROR: ..."). Success and plain
+        # integer exits pass through; a message means a failure that predates
+        # typed codes, so it goes out as internal_error rather than as prose.
+        code = e.code
+        if code in (0, None) or isinstance(code, int):
+            raise
+        if JSON_MODE:
+            _emit_error(command, backend, started, "internal_error",
+                        str(code).removeprefix("ERROR: "), "unknown", {})
+            sys.exit(1)
+        raise
+    except KeyboardInterrupt:
+        if JSON_MODE:
+            _emit_error(command, backend, started, "interrupted",
+                        "interrupted by the user", "no", {})
+        sys.exit(130)
+    except Exception as e:
+        if not JSON_MODE:
+            raise
+        _emit_error(command, backend, started, "internal_error",
+                    f"{type(e).__name__}: {e}", "unknown", {})
+        sys.exit(1)
+
+    # The postcondition applies whether or not the caller asked for JSON: a
+    # transparent request that produced an opaque file failed, and the exit code
+    # should say so either way.
+    described = [_describe_output(pth) for pth in _outputs] if JSON_MODE else []
+    try:
+        if JSON_MODE:
+            _check_transparency_postcondition(described)
+    except PixeltamerError as e:
+        _emit_error(command, backend, started, e.code, e.message,
+                    e.retryable, {k: v for k, v in e.details.items()
+                                  if k != "exit_code"})
+        sys.exit(1)
+
+    if JSON_MODE:
+        _emit_success(command, backend, started)
 
 
 if __name__ == "__main__":
