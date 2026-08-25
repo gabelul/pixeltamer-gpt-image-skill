@@ -59,6 +59,11 @@ function parseArgs(argv) {
     // biases the agent toward exploring instead of acting — which suppresses
     // exactly the Skill call we're measuring. Treat plan-mode numbers as a
     // lower bound and re-run with --permission-mode default to confirm a miss.
+    // Pick specific 1-based case numbers: --pick 1,9,14. Cheaper than a full
+    // sweep when you're testing one hypothesis rather than fuzzing the corpus.
+    pick: argv.includes('--pick')
+      ? String(argv[argv.indexOf('--pick') + 1]).split(',').map(Number)
+      : null,
     permissionMode: argv.includes('--permission-mode')
       ? String(argv[argv.indexOf('--permission-mode') + 1])
       : 'plan',
@@ -129,9 +134,10 @@ function score(tools) {
 
 const opts = parseArgs(process.argv.slice(2));
 const suite = JSON.parse(readFileSync(SUITE, 'utf8'));
-let cases = suite.cases;
+let cases = suite.cases.map((c, i) => ({ ...c, n: i + 1 }));
+if (opts.pick) cases = cases.filter((c) => opts.pick.includes(c.n));
 if (opts.onlyTrigger) cases = cases.filter((c) => c.should_trigger);
-cases = cases.slice(0, opts.limit);
+if (!opts.pick) cases = cases.slice(0, opts.limit);
 
 console.log(`pixeltamer trigger eval — ${cases.length} case(s), max ${opts.turns} turns, ${opts.permissionMode} mode`);
 if (opts.permissionMode === 'plan') {
@@ -148,7 +154,7 @@ for (const [i, c] of cases.entries()) {
     console.log(`\nStopping: spent $${spent.toFixed(2)}, ceiling was $${opts.maxCost}.`);
     break;
   }
-  process.stdout.write(`[${i + 1}/${cases.length}] ${c.query.slice(0, 62)}… `);
+  process.stdout.write(`[case ${c.n}] ${c.should_trigger ? 'want-FIRE' : 'want-QUIET'} ${c.query.slice(0, 48)}… `);
   const { tools, cost, error } = await runQuery(c.query, opts.turns, opts.permissionMode);
   spent += cost;
 
