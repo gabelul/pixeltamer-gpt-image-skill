@@ -111,6 +111,19 @@ guarantee alpha, since prompt text describing a backdrop overrides it.
 
 Pixeltamer prints **absolute paths**, one per line, on stdout. Errors go to stderr. So you can pipe:
 
+Two guarantees worth relying on with `-n N`:
+
+- **Nothing reaches stdout until every call has settled.** You will never see a
+  half-finished run that then exits non-zero.
+- **Paths come out in request order**, not completion order, so `-n 4 | head -1`
+  is meaningful.
+
+`-n` is partial-failure tolerant: one call failing doesn't discard the images the
+others produced (and you paid for). Exit status carries completeness — `0` when
+all N landed, `1` when fewer did, with the specific failures named on stderr.
+Every path on stdout is a real file either way.
+
+
 ```bash
 pixeltamer generate -p "..." | xargs open  # macOS open every output
 pixeltamer generate -p "..." -n 4 | head -1  # grab the first

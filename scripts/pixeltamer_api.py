@@ -373,32 +373,80 @@ def _output_paths(out_arg: str | None, n: int) -> list[Path]:
 
 
 def _write_item(item: dict, dest: Path) -> Path:
-    """Decode b64 or download URL, write to dest, print resolved path on stdout."""
+    """Decode b64 or download URL, write to dest, return the resolved path.
+
+    Deliberately does NOT print. stdout is a promise about the whole run, and
+    only the caller knows whether the run finished — printing from inside a
+    worker thread is what let a failed batch emit half its paths and then exit
+    non-zero, which a caller reading stdout cannot tell apart from success.
+    """
     if item.get("b64_json"):
         dest.write_bytes(base64.b64decode(item["b64_json"]))
     elif item.get("url"):
         dest.write_bytes(_download(item["url"]))
     else:
-        sys.exit(f"ERROR: response item missing b64_json/url: {item}")
-    with _print_lock:
-        print(dest.resolve(), flush=True)
+        raise RuntimeError(f"response item missing b64_json/url: {item}")
     return dest.resolve()
 
 
 def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]:
-    """Fire n parallel calls; write each response to paths[i]."""
+    """Fire n independent calls; return the paths that actually landed.
+
+    Genuinely partial-failure tolerant, which is what the docs have always
+    claimed: one call failing no longer discards the images the others already
+    produced and you already paid for.
+
+    Two rules about stdout follow from that:
+
+      - nothing is printed until every call has settled, so a caller reading
+        stdout never sees a half-finished run that later exits non-zero;
+      - paths come out in request order, not completion order, so `-n 4 | head -1`
+        means something.
+
+    Exit status carries completeness: 0 when all n landed, non-zero when fewer
+    did. The paths on stdout are always real files either way.
+    """
     results: list[Path | None] = [None] * n
+    failures: list[tuple[int, str]] = []
     workers = max(1, min(concurrency, n))
+
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {ex.submit(fn): i for i in range(n)}
         for fut in as_completed(futures):
             i = futures[fut]
-            data = fut.result()
-            items = data.get("data") or []
-            if not items:
-                sys.exit(f"ERROR: empty response: {json.dumps(data)[:500]}")
-            results[i] = _write_item(items[0], paths[i])
-    return [r for r in results if r is not None]
+            try:
+                data = fut.result()
+                items = data.get("data") or []
+                if not items:
+                    raise RuntimeError(
+                        f"empty response: {json.dumps(data)[:300]}"
+                    )
+                results[i] = _write_item(items[0], paths[i])
+            except SystemExit as e:
+                # A worker called sys.exit (e.g. _post_json on a 4xx). Capture
+                # it as this call's failure instead of tearing down the batch.
+                failures.append((i, str(e) or "request failed"))
+            except Exception as e:
+                failures.append((i, f"{type(e).__name__}: {e}"))
+
+    landed = [r for r in results if r is not None]
+
+    if failures:
+        for i, msg in sorted(failures):
+            print(f"ERROR: image {i + 1}/{n} failed: {msg}", file=sys.stderr)
+        print(
+            f"pixeltamer: {len(landed)}/{n} images generated; "
+            f"{len(failures)} failed.",
+            file=sys.stderr,
+        )
+
+    # Request order, and only once everything has settled.
+    for path in landed:
+        print(path, flush=True)
+
+    if failures:
+        sys.exit(1)
+    return landed
 
 
 # ----------------------------------------------------------------------- commands
@@ -451,7 +499,7 @@ def cmd_generate(a: argparse.Namespace) -> None:
         items = data.get("data") or []
         if not items:
             sys.exit(f"ERROR: empty response: {json.dumps(data)[:500]}")
-        _write_item(items[0], paths[0])
+        print(_write_item(items[0], paths[0]), flush=True)
         return
     _run_parallel(
         n=a.n,
@@ -518,7 +566,7 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
         items = data.get("data") or []
         if not items:
             sys.exit(f"ERROR: empty response: {json.dumps(data)[:500]}")
-        _write_item(items[0], paths[0])
+        print(_write_item(items[0], paths[0]), flush=True)
         return
     _run_parallel(n=a.n, concurrency=a.concurrency, fn=_call, paths=paths)
 

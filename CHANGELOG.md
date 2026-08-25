@@ -36,6 +36,12 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ### Fixed
 
+- **`-n N` could print some paths and then fail**, leaving stdout indistinguishable from a complete run. Paths were written from inside the worker threads as each call finished, so a later failure exited non-zero *after* several had already been emitted. Nothing now reaches stdout until every call has settled.
+
+- **`-n N` printed paths in completion order, not request order** — non-deterministic, so `-n 4 | head -1` returned a different file each run. Now request order.
+
+- **`-n N` was documented as "partial-failure tolerant" and wasn't.** `fut.result()` re-raised inside the loop, so one failed call tore down the whole batch and discarded images that had already been generated and paid for. Now each call fails independently: the successes are reported, the failures are named on stderr, and exit status carries completeness (`0` = all N landed, `1` = fewer). Found by codex during the `--json` design review, which read the code rather than the docs.
+
 - **`--size 3840x2160` was rejected by our own validator** — the exact "4K landscape" size `references/prompting.md` recommends. `max(w, h) >= MAX_SIDE` with `MAX_SIDE = 3840` excluded the documented maximum. Now inclusive.
 
 - **Size validation was missing two of the four constraints it exists to catch.** Its whole job is rejecting sizes before you pay for a roundtrip, and it checked only longest-edge and aspect ratio. Both edges must be divisible by 16 (`1000x1000` went straight through to a paid 400) and total pixels cap at 8,294,400 (`3072x3072` is 9.4M, also straight through). Both caught locally now, and the divisibility error names the nearest valid size. Found by re-reading Wangnov/gpt-image-2-skill's `sizes-and-formats.md`, which documents all four.
