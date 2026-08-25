@@ -221,3 +221,36 @@ test('tolerates a caller that does not inject getHasAlpha at all', () => {
   });
   assert.deepEqual(result, { ok: true });
 });
+
+// --- coverage gate: alpha present but unused ---
+
+test('fails a transparent entry whose alpha channel is present but unused', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => true,
+    getAlphaCoverage: () => ({ transparentPct: 0, partialPct: 0, opaquePct: 100, maxAlpha: 255 }),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /only 0% transparent/);
+});
+
+test('passes a transparent entry with real coverage', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => true,
+    getAlphaCoverage: () => ({ transparentPct: 62.9, partialPct: 1.4, opaquePct: 35.7, maxAlpha: 255 }),
+  });
+  assert.deepEqual(result, { ok: true });
+});
+
+test('tolerates an unmeasurable alpha channel rather than failing the entry', () => {
+  const result = verifyEntry(TRANSPARENT_ENTRY, '/proj', {
+    fs: makeFs(),
+    getDimensions: makeDims(1024, 1024),
+    getHasAlpha: () => true,
+    getAlphaCoverage: () => null,
+  });
+  assert.deepEqual(result, { ok: true });
+});

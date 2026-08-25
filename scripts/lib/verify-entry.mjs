@@ -7,7 +7,7 @@ const PNG_EXTS = new Set(['.png']);
 const JPG_EXTS = new Set(['.jpg', '.jpeg']);
 
 export function verifyEntry(entry, projectRoot, deps) {
-  const { fs, getDimensions, getHasAlpha } = deps;
+  const { fs, getDimensions, getHasAlpha, getAlphaCoverage } = deps;
   const fullPath = resolve(projectRoot, entry.path);
 
   if (!fs.existsSync(fullPath)) {
@@ -73,6 +73,19 @@ export function verifyEntry(entry, projectRoot, deps) {
         ok: false,
         reason: 'format says transparent but the PNG has no alpha channel',
       };
+    }
+
+    // Having an alpha channel is not the same as using it. A PNG can be RGBA
+    // with every pixel opaque — the model painted a backdrop — and that passes
+    // every check above while being useless for the one job it had.
+    if (getAlphaCoverage) {
+      const coverage = getAlphaCoverage(fullPath);
+      if (coverage && coverage.transparentPct < 1) {
+        return {
+          ok: false,
+          reason: `alpha channel present but only ${coverage.transparentPct}% transparent — the prompt probably described a background`,
+        };
+      }
     }
   }
 

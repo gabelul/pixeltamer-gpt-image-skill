@@ -9,6 +9,7 @@
 // already treats as "unable to read image dimensions" — a clean fail, not a crash.
 
 import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 
 // PNG: 8-byte signature, then the IHDR chunk. Width and height are big-endian
 // uint32s at fixed offsets 16 and 20 (chunk-length + "IHDR" occupy 8–15).
@@ -61,6 +62,26 @@ function jpegDimensions(buf) {
 // tRNS chunk, but gpt-image-2 never emits palette PNGs, so treating type 3 as
 // "no alpha" costs us nothing and keeps this a fixed-offset read.
 const PNG_COLOR_TYPE_OFFSET = 25;
+
+/**
+ * Collect the PNG chunks we care about. One walk, reused by both readers.
+ * @param {Buffer} buf - raw PNG bytes
+ * @returns {{idat:Buffer[], trns:Buffer|null}}
+ */
+function pngChunks(buf) {
+  const idat = [];
+  let trns = null;
+  let pos = 8;
+  while (pos + 8 <= buf.length) {
+    const len = buf.readUInt32BE(pos);
+    const type = buf.toString('ascii', pos + 4, pos + 8);
+    if (type === 'IDAT') idat.push(buf.subarray(pos + 8, pos + 8 + len));
+    else if (type === 'tRNS') trns = buf.subarray(pos + 8, pos + 8 + len);
+    else if (type === 'IEND') break;
+    pos += 12 + len;
+  }
+  return { idat, trns };
+}
 const PNG_ALPHA_BIT = 0b100;
 
 /**
@@ -78,7 +99,13 @@ const PNG_ALPHA_BIT = 0b100;
 export function parseHasAlphaChannel(buf) {
   if (!buf || buf.length <= PNG_COLOR_TYPE_OFFSET) return null;
   if (!pngDimensions(buf)) return null; // not a PNG (JPEG never has alpha anyway)
-  return (buf[PNG_COLOR_TYPE_OFFSET] & PNG_ALPHA_BIT) !== 0;
+  if ((buf[PNG_COLOR_TYPE_OFFSET] & PNG_ALPHA_BIT) !== 0) return true;
+  // Palette PNGs carry transparency in a tRNS chunk instead of an alpha
+  // channel, and it is just as real. gpt-image-2 doesn't emit these, but
+  // pngquant does — and post-process.md recommends pngquant — so a file that
+  // went through our own documented optimisation step must not read as opaque.
+  if (buf[PNG_COLOR_TYPE_OFFSET] === 3) return pngChunks(buf).trns !== null;
+  return false;
 }
 
 /**
@@ -95,6 +122,135 @@ export function readHasAlphaChannel(path, readFile = readFileSync) {
     return null;
   }
   return parseHasAlphaChannel(buf);
+}
+
+// Reading the alpha CHANNEL is a header lookup. Reading whether that channel is
+// actually USED means decoding pixels, and the difference is the whole point:
+// a PNG can declare RGBA and have every single pixel opaque. That is what you
+// get when you ask for a transparent background and the prompt talks the model
+// into painting a backdrop, and it is invisible to every cheaper check.
+//
+// Only what gpt-image-2 emits is supported: 8-bit, non-interlaced, colour type
+// 4 or 6. Anything else returns null, which callers already treat as "couldn't
+// read" rather than "no transparency".
+const PNG_BIT_DEPTH_OFFSET = 24;
+const PNG_INTERLACE_OFFSET = 28;
+
+/** Undo one PNG scanline filter in place. Spec §9.2. */
+function unfilterScanline(type, line, prev, bpp) {
+  switch (type) {
+    case 0: break;
+    case 1:
+      for (let i = bpp; i < line.length; i++) line[i] = (line[i] + line[i - bpp]) & 0xff;
+      break;
+    case 2:
+      for (let i = 0; i < line.length; i++) line[i] = (line[i] + prev[i]) & 0xff;
+      break;
+    case 3:
+      for (let i = 0; i < line.length; i++) {
+        const a = i >= bpp ? line[i - bpp] : 0;
+        line[i] = (line[i] + ((a + prev[i]) >> 1)) & 0xff;
+      }
+      break;
+    case 4:
+      for (let i = 0; i < line.length; i++) {
+        const a = i >= bpp ? line[i - bpp] : 0;
+        const b = prev[i];
+        const c = i >= bpp ? prev[i - bpp] : 0;
+        const p = a + b - c;
+        const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+        const pred = pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+        line[i] = (line[i] + pred) & 0xff;
+      }
+      break;
+    default: return false;
+  }
+  return true;
+}
+
+/**
+ * Measure how much of a PNG's alpha channel is actually transparent.
+ *
+ * @param {Buffer} buf - raw PNG bytes
+ * @returns {{transparentPct:number, partialPct:number, opaquePct:number, maxAlpha:number}|null}
+ *   percentages of fully-transparent (a=0), partial (1-249) and near-opaque
+ *   (>=250) pixels, or null if this isn't a PNG we can decode.
+ */
+export function parseAlphaCoverage(buf) {
+  const header = buf && pngDimensions(buf);
+  if (!header) return null;
+  if (buf[PNG_BIT_DEPTH_OFFSET] !== 8) return null;
+  if (buf[PNG_INTERLACE_OFFSET] !== 0) return null;
+
+  const colorType = buf[PNG_COLOR_TYPE_OFFSET];
+  const { idat, trns } = pngChunks(buf);
+
+  // Two shapes carry alpha: a real channel (types 4/6), or a palette whose
+  // tRNS chunk gives an alpha per palette index (type 3, what pngquant emits).
+  let channels;
+  if ((colorType & PNG_ALPHA_BIT) !== 0) channels = colorType === 6 ? 4 : 2;
+  else if (colorType === 3 && trns) channels = 1;
+  else return null;
+
+  if (!idat.length) return null;
+
+  let raw;
+  try {
+    raw = inflateSync(Buffer.concat(idat));
+  } catch {
+    return null;
+  }
+
+  const { width, height } = header;
+  const stride = width * channels;
+  if (raw.length < (stride + 1) * height) return null;
+
+  let transparent = 0, partial = 0, opaque = 0, maxAlpha = 0;
+  let prev = Buffer.alloc(stride);
+  let offset = 0;
+
+  for (let y = 0; y < height; y++) {
+    const filter = raw[offset++];
+    const line = Buffer.from(raw.subarray(offset, offset + stride));
+    offset += stride;
+    if (!unfilterScanline(filter, line, prev, channels)) return null;
+    for (let i = channels - 1; i < stride; i += channels) {
+      // Palette: the byte is an index; its alpha lives in tRNS. Indices past
+      // the end of tRNS are fully opaque, per spec.
+      const a = channels === 1 ? (i < line.length && line[i] < trns.length ? trns[line[i]] : 255)
+                               : line[i];
+      if (a > maxAlpha) maxAlpha = a;
+      if (a === 0) transparent++;
+      else if (a >= 250) opaque++;
+      else partial++;
+    }
+    prev = line;
+  }
+
+  const total = width * height;
+  const pct = (n) => Math.round((1000 * n) / total) / 10;
+  return {
+    transparentPct: pct(transparent),
+    partialPct: pct(partial),
+    opaquePct: pct(opaque),
+    maxAlpha,
+  };
+}
+
+/**
+ * Read a PNG from disk and measure its alpha coverage.
+ * @param {string} path - image file path
+ * @param {(p:string)=>Buffer} [readFile] - injectable reader; handy for tests
+ * @returns {{transparentPct:number,partialPct:number,opaquePct:number,maxAlpha:number}|null}
+ */
+export function readAlphaCoverage(path, readFile = readFileSync) {
+  let buf;
+  try {
+    buf = readFile(path);
+  } catch {
+    return null;
+  }
+  return parseAlphaCoverage(buf);
 }
 
 /**

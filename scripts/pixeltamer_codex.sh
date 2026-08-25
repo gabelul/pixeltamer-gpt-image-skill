@@ -324,17 +324,48 @@ $TRANSPARENCY_CLAUSE"
 _apply_background_to_prompt
 
 # Post-generation gate. Prompt-driven transparency is a request, not a contract,
-# so check the PNG's IHDR colour-type byte (offset 25, bit 2 = alpha) and say so
-# loudly when it came back RGB. Same header check the batch verifier uses.
-_warn_if_no_alpha() {
+# so the result gets measured rather than assumed.
+#
+# The cheap check — does the PNG declare an alpha channel — is not enough, and
+# that is the entire lesson of this feature: a file can be RGBA with every
+# single pixel opaque, which is exactly what you get when the prompt talked the
+# model into painting a backdrop. It passes every header check and fails the
+# only thing you wanted.
+#
+# So this decodes pixels (via lib/image-dimensions.mjs, stdlib zlib, no deps)
+# and treats "you asked for transparent and got none" as a failure, not a note.
+# The file is left on disk — it cost a generation and may still be useful — but
+# the exit status says the contract was not met.
+_alpha_gate() {
   [[ "$background" == "transparent" ]] || return 0
-  local f="$1" ctype
+  local f="$1"
   [[ -f "$f" ]] || return 0
-  ctype="$(od -An -tu1 -j25 -N1 "$f" 2>/dev/null | tr -d ' ')"
-  [[ -n "$ctype" ]] || return 0
-  if (( (ctype & 4) == 0 )); then
-    echo "$prog: WARNING — you asked for transparency but $f has no alpha channel (PNG colour type $ctype). The prompt probably described a backdrop. Re-read it, or fall back to a chroma-key matte (see references/transparency.md)." >&2
+  _have node || return 0   # gate needs node; silence beats a false failure
+
+  local pct
+  pct="$(node -e "
+import('$script_dir/lib/image-dimensions.mjs').then(m => {
+  const r = m.readAlphaCoverage(process.argv[1]);
+  console.log(r === null ? 'unreadable' : r.transparentPct);
+}).catch(() => console.log('unreadable'));
+" "$f" 2>/dev/null)"
+
+  case "$pct" in
+    unreadable|"")
+      echo "$prog: note — could not measure alpha on $f; verify it yourself before compositing." >&2
+      return 0
+      ;;
+  esac
+
+  # Below 1% transparent means the subject fills the frame or, far more likely,
+  # the model painted a background. Either way it is not a usable cutout.
+  if awk -v p="$pct" 'BEGIN { exit !(p < 1.0) }'; then
+    echo "$prog: FAILED — you asked for a transparent background but $f is ${pct}% transparent." >&2
+    echo "$prog: the prompt almost certainly described a backdrop, surface or cast shadow, which overrides the request. See references/transparency.md." >&2
+    echo "$prog: the file was kept at $f in case it is still useful." >&2
+    return 1
   fi
+  return 0
 }
 
 # --- prompt builders ---------------------------------------------------------
@@ -559,9 +590,17 @@ else
   fi
 fi
 
-# Transparency is prompt-driven here, so verify rather than assume.
-for p in "${final_paths[@]}"; do _warn_if_no_alpha "$p"; done
+# Transparency is prompt-driven here, so verify rather than assume. A failure
+# here is a real failure: the caller asked for a cutout and did not get one.
+alpha_failures=0
+for p in "${final_paths[@]}"; do _alpha_gate "$p" || alpha_failures=$((alpha_failures + 1)); done
 
 # stdout stays a clean list of the final paths for callers; status to stderr.
 for p in "${final_paths[@]}"; do echo "$p"; done
+
+# Paths are still printed — the files exist and were paid for — but exit status
+# carries whether the transparency contract was actually met.
+if (( alpha_failures > 0 )); then
+  exit 1
+fi
 echo "$prog: ok (pattern: $used)" >&2

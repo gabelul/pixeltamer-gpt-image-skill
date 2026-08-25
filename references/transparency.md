@@ -118,6 +118,15 @@ Batch mode does this for you — any entry whose `Format` field contains `transp
 
 This is the one that catches the real failure. An opaque-everywhere alpha channel passes check 1 and is completely useless.
 
+**pixeltamer does this for you now.** `--background transparent` measures the result and *fails* — non-zero exit, the reason on stderr — when what came back is under 1% transparent. The file is kept, because it cost a generation and may still be useful, but the exit status says the contract wasn't met. Batch mode applies the same gate to any entry whose `Format` says `transparent`.
+
+To check a file yourself:
+
+```bash
+node -e "import('./scripts/lib/image-dimensions.mjs').then(m => console.log(m.readAlphaCoverage('asset.png')))"
+# → { transparentPct: 62.9, partialPct: 1.4, opaquePct: 35.7, maxAlpha: 255 }
+```
+
 ```bash
 # % of fully transparent pixels
 magick asset.png -alpha extract -format "%[fx:100*mean]\n" info:
