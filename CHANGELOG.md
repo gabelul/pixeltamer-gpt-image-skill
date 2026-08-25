@@ -14,6 +14,8 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 - **`--input-fidelity high|low`** on `edit` and `compose` (API backend). `high` preserves faces, logos, label typography and material texture that the default `low` reinterprets. It carries a doctrine change, not just a flag: all inputs are preserved at high fidelity but **only the first image gets the extra richness in texture**, so reference order is now a decision. `references/multi-reference.md` has a table per composite type.
 
+- **`--size 2K` and `--size 4K`** as shorthand for `2048x2048` and `3840x2160`.
+
 - **`references/transparency.md`** — the doctrine. The load-bearing rule is that prompt text outranks the flag: describe a backdrop, surface or cast shadow and you get a fully-opaque PNG with no error anywhere in the chain. Also covers naming the boundary rather than denying the background, the "around **and** between" clause that saves filigree, matching the edge clause to the material, keeping a collection consistent with one shared brand block, alpha-bbox trimming, and the four workflows transparency unlocks.
 
 - **Alpha gate in batch mode.** Entries whose `Format` says `transparent` must declare an alpha channel or they fail with `format says transparent but the PNG has no alpha channel`. Read from the PNG IHDR colour-type byte — no new dependency.
@@ -24,13 +26,17 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ### Changed
 
-- **The skill description now mentions transparency.** It is the only thing deciding whether an agent reaches for pixeltamer, and it had no transparency vocabulary at all — "cut out the background on this logo" matched nothing. It also gained an explicit negative clause (compression, format conversion, resizing, describing images, video), replacing a `"anything else that ends in a PNG"` tail broad enough to catch "compress every PNG under 100KB".
+- **The skill description now mentions transparency.** It is the only thing deciding whether an agent reaches for pixeltamer, and it had no transparency vocabulary at all — "cut out the background on this logo" matched nothing. It also gained an explicit negative clause, replacing a `"anything else that ends in a PNG"` tail broad enough to catch "compress every PNG under 100KB". The negative names where to go instead: stripping the background off an existing image you want to keep is rembg's job, not ours — a live test showed agents correctly reach for PIL there and never consider us, and claiming it in the description was promising something `edit` would answer by redrawing the subject.
 
 - **Chroma-key green screens are demoted to fallback** across `prompting.md`, `ui-mockup-prompting.md`, `infographic.md` and `post-process.md`. They earn their place for subjects the model won't cut cleanly and for codex `edit`/`compose`; they are no longer the default answer.
 
 - **`recipes/infographic.md`** gains a routing table for generated charts. OpenAI's own guidance lands where this repo already stood: a generated chart is raster artwork, so if the numbers are load-bearing, render deterministically and generate the illustration around it.
 
 ### Fixed
+
+- **`--size 3840x2160` was rejected by our own validator** — the exact "4K landscape" size `references/prompting.md` recommends. `max(w, h) >= MAX_SIDE` with `MAX_SIDE = 3840` excluded the documented maximum. Now inclusive.
+
+- **Size validation was missing two of the four constraints it exists to catch.** Its whole job is rejecting sizes before you pay for a roundtrip, and it checked only longest-edge and aspect ratio. Both edges must be divisible by 16 (`1000x1000` went straight through to a paid 400) and total pixels cap at 8,294,400 (`3072x3072` is 9.4M, also straight through). Both caught locally now, and the divisibility error names the nearest valid size. Found by re-reading Wangnov/gpt-image-2-skill's `sizes-and-formats.md`, which documents all four.
 
 - **`--format` was aimed at the wrong API parameter, making output format unreachable.** It mapped to `response_format` (`url` / `b64_json`) — the DALL·E-era parameter that the spec says GPT image models ignore outright, since they always return base64. The parameter that actually selects the file format is `output_format`, and it was never wired. Transparency was therefore working by coincidence: png happens to be the server-side default. `--format` is kept as a documented legacy passthrough, because `OPENAI_IMAGE_BASE_URL` proxies may still implement the older surface.
 
@@ -43,6 +49,8 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 ### Documented
 
 - **Transparent PNGs carry ghost colour under the alpha.** Fully-transparent pixels still store RGB, and gpt-image-2 usually leaves the scene there — measured at 62%, 68% and 87% of transparent pixels across test generations, with one clean run in four. Invisible in any alpha-aware viewer, a visible halo the moment something flattens naively. Scrub one-liner in `post-process.md`, plus its own troubleshooting entry.
+
+- **Flatten a transparent PNG before using it as a style reference.** It carries premultiplied edges, the ghost RGB under its transparent pixels, and alpha artifacts into the edit. Relevant now that the skill produces alpha assets people will naturally feed back in as `-i`.
 
 - **`pngquant` is alpha-safe** for this kind of work: 6.1 MB → 1.35 MB on the gallery set with coverage unchanged and partial alpha intact.
 
