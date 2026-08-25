@@ -28,9 +28,11 @@ Notes:
   - Mask-based inpainting is NOT supported here. The Responses API doesn't
     take a mask parameter. Pixeltamer's `edit --mask` still routes through
     the API backend.
-  - Token refresh is NOT implemented. If your access_token has expired,
-    you'll get a 401 with code "token_expired". Run `codex login` to mint
-    a fresh one. Proxy users get refresh handled by their proxy.
+  - Token refresh depends on who owns the auth. Against upstream chatgpt.com
+    we hold the token, so a 401 token_expired triggers one in-memory refresh
+    and one retry (auth.json is never written — it's codex's file). Against a
+    proxy or load balancer, auth is its job: we surface the 401 and point at
+    the proxy rather than fighting whichever account it has in play.
   - `-n N` for parallel variants is NOT supported on this backend. Codex
     sessions are sequential. Use the API backend for batch generation.
 
@@ -60,6 +62,12 @@ from pathlib import Path
 # Default upstream — used when no proxy is configured. The Codex Responses API
 # lives at /backend-api/codex/responses on chatgpt.com.
 UPSTREAM_BASE = "https://chatgpt.com/backend-api/codex"
+
+# Codex's public OAuth client. Refreshing an access token is a plain
+# grant_type=refresh_token POST; the client is public by design (it ships in a
+# CLI), so there's no secret here to protect.
+REFRESH_ENDPOINT = "https://auth.openai.com/oauth/token"
+REFRESH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
 # The chat model that wraps the image_generation tool. Different from
 # gpt-image-2 (which is the actual image model) — gpt-5.4 is what
@@ -132,6 +140,7 @@ def load_codex_session() -> dict:
 
     return {
         "access_token": access_token,
+        "refresh_token": (tokens.get("refresh_token") or "").strip() or None,
         "account_id": account_id,
         "installation_id": installation_id,
         "auth_mode": auth.get("auth_mode"),
@@ -171,6 +180,46 @@ def resolve_base_url() -> str:
 
     provider = (config.get("model_providers") or {}).get(provider_name) or {}
     return provider.get("base_url") or UPSTREAM_BASE
+
+
+def is_upstream(url: str) -> bool:
+    """Are we talking to ChatGPT directly, or to somebody's proxy?
+
+    This is the question that decides whether refreshing our token is helpful or
+    harmful, so it gets its own function rather than being inlined at the call
+    site.
+    """
+    return url.startswith(UPSTREAM_BASE)
+
+
+def refresh_access_token(refresh_token: str) -> str | None:
+    """Trade a refresh token for a fresh access token. In memory only.
+
+    Deliberately does NOT write the result back to ~/.codex/auth.json. That file
+    belongs to the codex CLI, and rotating the token underneath it risks breaking
+    a login we don't own. The cost of not persisting is one extra refresh on the
+    next invocation, which is a fine trade against corrupting someone's session.
+
+    @param refresh_token - the refresh_token from auth.json
+    @returns a fresh access token, or None if the refresh was refused
+    """
+    body = json.dumps({
+        "client_id": REFRESH_CLIENT_ID,
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        REFRESH_ENDPOINT, data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        # Refresh failing is a normal outcome (expired refresh token, network,
+        # OAuth outage). The caller falls back to the `codex login` hint.
+        return None
+    return (payload.get("access_token") or "").strip() or None
 
 
 # --------------------------------------------------------------------------- image encoding
@@ -387,9 +436,18 @@ def run_one(*, prompt: str, images: list[Path], size: str, out: Path, debug: boo
         session=session, prompt=prompt, images=images, size=size,
     )
     request_data = json.dumps(body).encode("utf-8")
+    # One refresh per run. A second 401 after refreshing means something other
+    # than expiry, and looping on it would just burn quota.
+    refreshed_once = False
 
     last_response_text = ""
-    for attempt in range(max_retries + 1):
+    # `budget` counts transient-failure retries. A token refresh grants one extra
+    # pass rather than spending one, because an expired token is not a transient
+    # failure and `--max-retries 0` must still get its single refresh-and-retry.
+    budget = max_retries + 1
+    attempt = -1
+    while attempt + 1 < budget:
+        attempt += 1
         request = urllib.request.Request(
             url, data=request_data, headers=headers, method="POST",
         )
@@ -399,15 +457,50 @@ def run_one(*, prompt: str, images: list[Path], size: str, out: Path, debug: boo
                 response_text = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as error:
             body_preview = error.read().decode("utf-8", errors="replace")[:1500]
-            # Token expired is its own special case — never retry, the user
-            # needs to run `codex login` before anything will work again.
+            # Token expired. What to do about it depends entirely on who owns
+            # the auth, and that's decided by where we're POSTing:
+            #
+            #   proxy / load balancer  — it owns auth, rotation and refresh. Our
+            #     copy of the token is not necessarily even the account it wants
+            #     to use, so minting a fresh one and retrying fights it. Surface
+            #     the error and point at the proxy.
+            #   upstream chatgpt.com   — we're holding the token, so it's on us.
+            #     One refresh, one retry, in memory. Matches codex's own
+            #     behaviour and recovers silently.
             if error.code == 401 and "token_expired" in body_preview:
-                sys.exit(
-                    "pixeltamer_codex_oauth: codex access_token expired. "
-                    "Run `codex login` to mint a fresh one. "
-                    "(If you're behind a local codex proxy that should auto-refresh, "
-                    "check that the proxy is reachable.)"
+                if not is_upstream(url):
+                    sys.exit(
+                        "pixeltamer_codex_oauth: 401 token_expired from "
+                        f"{url}.\n"
+                        "That's a proxy/load-balancer endpoint, so auth is its "
+                        "job, not ours — refreshing our own token would fight "
+                        "whichever account it has in play. Check the proxy is "
+                        "running and its accounts are healthy."
+                    )
+                if refreshed_once or not session.get("refresh_token"):
+                    sys.exit(
+                        "pixeltamer_codex_oauth: codex access_token expired and "
+                        "could not be refreshed. Run `codex login` to mint a "
+                        "fresh one."
+                    )
+                print(
+                    "pixeltamer_codex_oauth: access token expired; refreshing "
+                    "and retrying once.",
+                    file=sys.stderr,
                 )
+                new_token = refresh_access_token(session["refresh_token"])
+                refreshed_once = True
+                if not new_token:
+                    sys.exit(
+                        "pixeltamer_codex_oauth: token refresh was refused. "
+                        "The refresh token has probably expired too — run "
+                        "`codex login`."
+                    )
+                # In-memory only: auth.json is codex's file, not ours.
+                session["access_token"] = new_token
+                headers["Authorization"] = f"Bearer {new_token}"
+                budget += 1  # the refreshed retry is extra, not deducted
+                continue
             # 5xx is the proxy / upstream having a moment — back off and try again.
             if 500 <= error.code < 600 and attempt < max_retries:
                 wait = _backoff_seconds(attempt)

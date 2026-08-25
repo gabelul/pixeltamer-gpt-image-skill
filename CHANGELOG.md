@@ -16,6 +16,8 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 - **`--size 2K` and `--size 4K`** as shorthand for `2048x2048` and `3840x2160`.
 
+- **Codex access-token refresh on the OAuth path, gated on who owns the auth.** Against upstream `chatgpt.com` a `401 token_expired` now triggers one in-memory refresh and one retry instead of a dead-end "run `codex login`". Against a proxy or load balancer it deliberately does *not* refresh — that endpoint owns auth, rotation and multi-account fallback, and our copy of the token may not even be the account it wants in play, so refreshing would fight it. The 401 is surfaced pointing at the proxy instead. `auth.json` is never written: it's the codex CLI's file and rotating the token underneath it could break a login we don't own. The refreshed retry is granted on top of the `--max-retries` budget rather than deducted, so `--max-retries 0` still recovers once.
+
 - **`references/transparency.md`** — the doctrine. The load-bearing rule is that prompt text outranks the flag: describe a backdrop, surface or cast shadow and you get a fully-opaque PNG with no error anywhere in the chain. Also covers naming the boundary rather than denying the background, the "around **and** between" clause that saves filigree, matching the edge clause to the material, keeping a collection consistent with one shared brand block, alpha-bbox trimming, and the four workflows transparency unlocks.
 
 - **Alpha gate in batch mode.** Entries whose `Format` says `transparent` must declare an alpha channel or they fail with `format says transparent but the PNG has no alpha channel`. Read from the PNG IHDR colour-type byte — no new dependency.
@@ -52,14 +54,11 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 - **Flatten a transparent PNG before using it as a style reference.** It carries premultiplied edges, the ghost RGB under its transparent pixels, and alpha artifacts into the edit. Relevant now that the skill produces alpha assets people will naturally feed back in as `-i`.
 
-- **Codex token expiry on the OAuth path.** `edit`/`compose` read the access token straight out of `~/.codex/auth.json` and don't refresh it, so an expired token means `codex login`. The same file carries a `refresh_token` and the endpoint is `https://auth.openai.com/oauth/token`, so this is recoverable — documented in `codex-backend.md` rather than silently left as a mystery 401.
-
 - **Sample the matte colour before keying it.** You asked for `#00ff00`, the model produced something near it, and keying the requested value leaves a fringe of the actual one. Read the corner pixel first. Same reasoning as `--matte-color auto` in Wangnov/gpt-image-2-skill.
 
 - **`--moderation low`** named as the escape hatch on content refusals, where the account allows it.
 
 - **`pngquant` is alpha-safe** for this kind of work: 6.1 MB → 1.35 MB on the gallery set with coverage unchanged and partial alpha intact.
-
 
 ## [0.5.6] - 2026-08-20
 

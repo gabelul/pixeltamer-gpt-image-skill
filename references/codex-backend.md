@@ -165,14 +165,27 @@ model — image models re-render text rather than preserving it.
 think about.
 
 `edit` and `compose` go through `pixeltamer_codex_oauth.py`, which reads the
-access token out of `~/.codex/auth.json` directly. **It does not refresh it.** An
-expired token surfaces as a 401 with `token_expired`, and the fix is `codex
-login`.
+access token out of `~/.codex/auth.json`. What happens when that token expires
+depends on **who owns the auth**, and that's decided by where the request is
+going:
 
-That's a real gap rather than a design choice: the same `auth.json` carries a
-`refresh_token`, and the refresh endpoint is
-`https://auth.openai.com/oauth/token`. One refresh plus one retry would recover
-silently. Not implemented yet — the reason for caution is that `auth.json` is
-codex's file, and writing a rotated token back into it risks breaking the login
-for the CLI too. An in-memory refresh that never touches the file would sidestep
-that.
+| Endpoint | On `401 token_expired` |
+|---|---|
+| Upstream `chatgpt.com` | One refresh, one retry. Recovers silently. |
+| A proxy / load balancer | Surfaced, with a pointer at the proxy. We don't refresh. |
+
+The proxy case is the interesting one. If you run something like
+`[model_providers.codex-lb]` with a local `base_url`, that thing owns auth,
+rotation and multi-account fallback. Our copy of the token isn't necessarily even
+the account it wants in play, so minting a fresh one and retrying would fight it.
+A 401 from a proxy means check the proxy, not check your login.
+
+Two deliberate limits on the upstream path:
+
+- **The refresh is in-memory only.** `auth.json` belongs to the codex CLI, and
+  rotating the token underneath it risks breaking a login we don't own. The cost
+  is one extra refresh next invocation; the alternative risks your session.
+- **One refresh per run.** A second 401 after refreshing is something other than
+  expiry, and looping would burn quota. The refreshed retry is granted on top of
+  the `--max-retries` budget rather than deducted from it, so `--max-retries 0`
+  still gets its one recovery.
