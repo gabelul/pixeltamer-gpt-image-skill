@@ -28,6 +28,16 @@ Working with multiple faces from separate photos? Combine them into one composit
 
 This is a change in how you order references, not just what you label them. The labeling patterns below still apply on top.
 
+### Don't hand a transparent PNG in as a style reference
+
+Now that pixeltamer generates real alpha, it's easy to feed one of those PNGs straight back in as `-i`. Flatten it first unless the alpha *is* the signal you want carried.
+
+A transparent reference brings premultiplied edges, whatever RGB is hiding under the fully-transparent pixels (usually a ghost of the original scene — see `transparency.md`), and alpha artifacts into the edit. The model reads all of it. Composite onto a flat neutral first:
+
+```bash
+magick asset.png -background "#808080" -alpha remove -alpha off ref-flat.png
+```
+
 ## When to reach for it
 
 - Editorial product photography: product in a real-world scene, brand-correct.

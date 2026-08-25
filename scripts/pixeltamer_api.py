@@ -82,6 +82,16 @@ DEFAULT_CONCURRENCY = 4
 MAX_REFERENCE_IMAGES = 16
 MAX_SIDE = 3840
 MAX_RATIO = 3.0
+# 3840x2160 exactly. Also what makes 2880x2880 the practical square ceiling.
+MAX_TOTAL_PIXELS = 8_294_400
+# gpt-image-2 takes arbitrary WxH, but both edges must be divisible by 16.
+SIZE_EDGE_MULTIPLE = 16
+
+# Shorthands people actually type. Resolved before validation.
+SIZE_ALIASES = {
+    "2k": "2048x2048",
+    "4k": "3840x2160",
+}
 
 
 # ---------------------------------------------------------------------------- io
@@ -99,18 +109,49 @@ def _key() -> str:
     return key
 
 
+def _resolve_size(size: str) -> str:
+    """Expand a size alias (2K / 4K) to its WxH form. Pass anything else through."""
+    return SIZE_ALIASES.get(size.strip().lower(), size)
+
+
 def _validate_size(size: str) -> None:
-    """Reject sizes the model won't accept, before paying for a roundtrip."""
+    """Reject sizes the model won't accept, before paying for a roundtrip.
+
+    Four constraints, all from OpenAI's spec. Every one of these is a 400 you'd
+    otherwise pay a network roundtrip to discover:
+
+      - both edges divisible by 16
+      - longest edge at most 3840
+      - total pixels at most 8,294,400 (which is 3840x2160, and is also why
+        2880x2880 is the practical square ceiling)
+      - aspect ratio within 3:1 either way
+    """
     if size in ("auto", ""):
         return
     try:
         w, h = (int(x) for x in size.lower().split("x", 1))
     except Exception:
-        sys.exit(f"ERROR: --size must be WxH or 'auto' (got {size!r})")
+        sys.exit(f"ERROR: --size must be WxH, 2K, 4K or 'auto' (got {size!r})")
     if w <= 0 or h <= 0:
         sys.exit(f"ERROR: --size dimensions must be positive (got {size!r})")
-    if max(w, h) >= MAX_SIDE:
-        sys.exit(f"ERROR: longest side must be < {MAX_SIDE}px (got {max(w, h)}px)")
+    # Inclusive: 3840x2160 is the documented maximum, not one past it.
+    if max(w, h) > MAX_SIDE:
+        sys.exit(f"ERROR: longest side must be ≤ {MAX_SIDE}px (got {max(w, h)}px)")
+    off = [f"{name}={v}" for name, v in (("width", w), ("height", h))
+           if v % SIZE_EDGE_MULTIPLE]
+    if off:
+        sys.exit(
+            f"ERROR: both edges must be divisible by {SIZE_EDGE_MULTIPLE} "
+            f"({', '.join(off)}). Nearest valid: "
+            f"{round(w / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}x"
+            f"{round(h / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}"
+        )
+    if w * h > MAX_TOTAL_PIXELS:
+        sys.exit(
+            f"ERROR: total pixels must be ≤ {MAX_TOTAL_PIXELS:,} "
+            f"(got {w * h:,} for {w}x{h}). 3840x2160 and 2880x2880 both sit "
+            f"exactly on the cap."
+        )
     ratio = max(w, h) / min(w, h)
     if ratio > MAX_RATIO:
         sys.exit(f"ERROR: aspect ratio must be ≤ {MAX_RATIO:.0f}:1 (got {ratio:.2f}:1)")
@@ -363,6 +404,7 @@ def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]
 # ----------------------------------------------------------------------- commands
 
 def cmd_generate(a: argparse.Namespace) -> None:
+    a.size = _resolve_size(a.size)
     _validate_size(a.size)
     payload: dict = {
         "model": a.model,
@@ -421,6 +463,7 @@ def cmd_generate(a: argparse.Namespace) -> None:
 
 def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     """Shared body: 1 image -> edit/inpaint, 2-16 images -> compose."""
+    a.size = _resolve_size(a.size)
     _validate_size(a.size)
     refs = list(a.image)
     if not refs:
@@ -516,6 +559,7 @@ def main() -> None:
     g = sub.add_parser("generate", aliases=["gen"], help="text -> image")
     g.add_argument("-p", "--prompt", required=True, help="text prompt")
     g.add_argument("--size", default="1024x1024",
+                   metavar="WxH|2K|4K|auto",
                    help="WxH or 'auto'; max side <3840, ratio ≤3:1")
     g.add_argument("-n", type=int, default=1,
                    help="number of images (parallel calls; default 1)")
@@ -544,7 +588,9 @@ def main() -> None:
     e.add_argument("-p", "--prompt", required=True,
                    help="describe ONLY the change you want")
     e.add_argument("--mask", help="optional PNG mask; white = regenerate")
-    e.add_argument("--size", default="1024x1024")
+    e.add_argument("--size", default="1024x1024",
+                   metavar="WxH|2K|4K|auto",
+                   help="WxH (edges divisible by 16), 2K, 4K, or auto")
     e.add_argument("-n", type=int, default=1)
     e.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     e.add_argument("-o", "--out")
@@ -570,7 +616,9 @@ def main() -> None:
                    help=f"reference image path (repeat 2-{MAX_REFERENCE_IMAGES} times)")
     c.add_argument("-p", "--prompt", required=True,
                    help="how the references should be combined")
-    c.add_argument("--size", default="1024x1024")
+    c.add_argument("--size", default="1024x1024",
+                   metavar="WxH|2K|4K|auto",
+                   help="WxH (edges divisible by 16), 2K, 4K, or auto")
     c.add_argument("-n", type=int, default=1)
     c.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     c.add_argument("-o", "--out")

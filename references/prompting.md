@@ -96,6 +96,19 @@ For people, add a `Preserve exactly: facial features, identity, hair, expression
 | 4K landscape / wallpaper | `3840x2160` | Top of supported size range |
 | 4K portrait / vertical poster | `2160x3840` | Same |
 
+`2K` and `4K` are accepted as shorthand for `2048x2048` and `3840x2160`.
+
+Four constraints on a custom `WxH`, all enforced locally before the request goes out:
+
+| Rule | Value |
+|---|---|
+| Both edges divisible by | `16` |
+| Longest edge | ≤ `3840` |
+| Total pixels | ≤ `8,294,400` |
+| Aspect ratio | ≤ `3:1` either way |
+
+That pixel cap is exactly `3840x2160`, which is also why `2880x2880` is the practical square ceiling — it lands on the same number.
+
 Wrong aspect ratio = wasted generation. Decide BEFORE you write the prompt.
 
 ### 6. Iterate, don't stack
