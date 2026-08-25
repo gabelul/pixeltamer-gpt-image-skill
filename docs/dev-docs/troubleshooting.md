@@ -255,3 +255,39 @@ Skills CLI strips execute bits on copy. `RELEASING.md` documents that step.
 **Lesson:** Borrowed from Wangnov/gpt-image-2-skill, which puts it plainly:
 *"treat `unrecognized subcommand` as stale runtime evidence first."* A flag that
 doesn't exist is far more often a deployment fact than a code fact.
+
+---
+
+## A standalone script borrowing the dispatcher's helpers
+
+**Symptom:** `pixeltamer_codex.sh` fails at the worst possible moment — after the
+image has been generated and paid for, while publishing it — with
+`script_dir: unbound variable`, or silently skips a check because
+`_have: command not found` made `_have node || return 0` take the early return.
+
+**Root cause:** `scripts/pixeltamer` (the dispatcher) defines `script_dir`,
+`_have`, `_log`, `_die`. `scripts/pixeltamer_codex.sh` runs *both* through the
+dispatcher and standalone, and only the first route supplies those. Writing
+`$script_dir` in the codex script reads fine, passes `bash -n`, and works right
+up until someone runs the script directly — or until `set -u` fires on a path
+that only executes after a successful generation.
+
+This happened three times in one day while adding the alpha gate and `--json`:
+`_have` twice, `script_dir` twice. Two things hid it:
+
+- `bash -n` checks syntax, not name resolution. It passes happily.
+- Every manual test extracted the function into a harness that **defined the
+  missing name itself**. The harness was more capable than the script, so the
+  test could not fail. The alpha gate "passed" a test while being dead in the
+  real script.
+
+**Fix:** the standalone script defines its own `script_dir` and `_have`. And
+`tests/standalone-scripts.test.mjs` now walks every `scripts/*.sh`, collecting
+the variables each one reads and the project functions each one calls, and fails
+when any is not defined in the same file. Verified by deleting the `script_dir`
+definition and watching the suite go red.
+
+**Lesson:** when a script has two invocation routes, the one you test is not
+necessarily the one that breaks. And a test harness that supplies what the code
+is missing is not a test — the 500-vs-400 retry test earlier the same day failed
+the same way, by making the failure unreachable.

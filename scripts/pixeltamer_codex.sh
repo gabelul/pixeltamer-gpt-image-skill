@@ -22,6 +22,42 @@ set -euo pipefail
 
 prog="$(basename "$0")"
 
+# This script runs standalone as well as via the dispatcher, so it cannot borrow
+# the dispatcher's helpers. _have used to live only there, which silently
+# disabled every `_have node` guard here: the alpha gate returned early and
+# --json claimed node was missing on a machine that has it. Both looked fine in
+# tests because the test harness defined _have itself.
+_have() { command -v "$1" >/dev/null 2>&1; }
+
+# Same trap as _have: this is a standalone script, so it cannot rely on the
+# dispatcher having exported anything. `set -u` turns a borrowed name into a
+# hard failure at the worst possible moment — after the image was generated and
+# paid for, while publishing it.
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Whether we're in JSON mode has to be known before the first thing that can
+# fail, which is argument validation — so it's a pre-scan, not a parse result.
+json_mode=0
+for _arg in "$@"; do [[ "$_arg" == "--json" ]] && json_mode=1; done
+
+# Every failure exit goes through here. In JSON mode that means one object on
+# stdout, which is the contract; otherwise the prose this script always printed.
+# node builds the envelope so no path or message is escaped by hand.
+_bail() {
+  local code="$1" retryable="$2" status="$3"; shift 3
+  if (( json_mode == 1 )); then
+    if _have node; then
+      node "${BASH_SOURCE[0]%/*}/lib/emit-json.mjs" error generate codex 0 \
+        "$code" "$retryable" "$*"
+    else
+      printf '{"schema_version":1,"ok":false,"command":"generate","backend":"codex","error":{"code":"internal_error","message":"node is required for --json","retryable":"no"}}\n'
+    fi
+  else
+    echo "$prog: $*" >&2
+  fi
+  exit "$status"
+}
+
 usage() {
   cat >&2 <<EOF
 usage: $prog -p "<prompt>" -o <output.png> [--size WxH] [--quality Q] [-n N] [-i FILE]... [--reasoning E] [--debug]
@@ -56,7 +92,6 @@ count=1
 reasoning="medium"
 debug=0
 background=""
-json_mode=0
 started_ms=$(( $(date +%s) * 1000 ))
 images=()
 
@@ -73,16 +108,18 @@ while [[ $# -gt 0 ]]; do
     --json)         json_mode=1; shift ;;
     --debug)        debug=1; shift ;;
     -h|--help)      usage ;;
-    *)              echo "$prog: unknown arg: $1" >&2; usage ;;
+    *)              (( json_mode == 1 )) && _bail invalid_argument no 2 "unknown arg: $1"
+                    echo "$prog: unknown arg: $1" >&2; usage ;;
   esac
 done
 
-[[ -z "$prompt" ]] && { echo "$prog: --prompt required" >&2; usage; }
+[[ -z "$prompt" ]] && { (( json_mode == 1 )) && _bail invalid_argument no 2 "--prompt required"; echo "$prog: --prompt required" >&2; usage; }
 case "$background" in
   ""|transparent|opaque|auto) ;;
-  *) echo "$prog: --background must be transparent, opaque or auto" >&2; usage ;;
+  *) (( json_mode == 1 )) && _bail invalid_argument no 2 "--background must be transparent, opaque or auto"
+     echo "$prog: --background must be transparent, opaque or auto" >&2; usage ;;
 esac
-[[ -z "$out" ]] && { echo "$prog: --out required" >&2; usage; }
+[[ -z "$out" ]] && { (( json_mode == 1 )) && _bail invalid_argument no 2 "--out required"; echo "$prog: --out required" >&2; usage; }
 [[ "$count" =~ ^[0-9]+$ ]] || { echo "$prog: -n must be a positive integer" >&2; usage; }
 (( count >= 1 && count <= 10 )) || { echo "$prog: -n must be 1-10" >&2; usage; }
 
@@ -93,7 +130,7 @@ image_args=()
 if (( ${#images[@]} > 0 )); then
   for img in "${images[@]}"; do
     [[ -z "$img" ]] && { echo "$prog: -i/--image given an empty path" >&2; exit 2; }
-    [[ -f "$img" ]] || { echo "$prog: reference image not found: $img" >&2; exit 2; }
+    [[ -f "$img" ]] || { (( json_mode == 1 )) && _bail input_not_found no 2 "reference image not found: $img"; echo "$prog: reference image not found: $img" >&2; exit 2; }
     abs_img="$(cd "$(dirname "$img")" && pwd)/$(basename "$img")"
     image_args+=(-i "$abs_img")
   done
