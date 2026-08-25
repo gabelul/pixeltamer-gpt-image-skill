@@ -1,6 +1,6 @@
 {
   "skill_name": "pixeltamer",
-  "note": "Two things get measured per query: did the Skill tool fire for pixeltamer (trigger), and once it did, was a reference or recipe file actually read (routing). A skill that triggers but skips its own doctrine is only half working.",
+  "note": "Two things get measured per query: did the Skill tool fire for pixeltamer (trigger), and once it did, was a reference or recipe file actually read (routing). A skill that triggers but skips its own doctrine is only half working. Cases with a `scaffold` path need that file present; the runner creates it.",
   "cases": [
     {
       "query": "draw me an app icon for a habit tracker, 1024x1024, transparent background, save it to /tmp/icon.png",
@@ -8,7 +8,7 @@
       "expect_routing": "references/transparency.md"
     },
     {
-      "query": "make a LinkedIn scroll-stop card with the headline 'We deleted 40% of our codebase' — square, bold type",
+      "query": "make a LinkedIn scroll-stop card with the headline 'We deleted 40% of our codebase' \u2014 square, bold type",
       "should_trigger": true,
       "expect_routing": "recipes/viral-linkedin.md"
     },
@@ -28,7 +28,7 @@
       "expect_routing": null
     },
     {
-      "query": "blend these two references into one shot — the product from a.png on the kitchen counter from b.png, morning light",
+      "query": "blend these two references into one shot \u2014 the product from a.png on the kitchen counter from b.png, morning light",
       "should_trigger": true,
       "expect_routing": "references/multi-reference.md"
     },
@@ -43,16 +43,17 @@
       "expect_routing": "recipes/product-photo.md"
     },
     {
-      "query": "cut out the background on this logo so it works on a dark header",
+      "query": "cut out the background on the logo at /tmp/pixeltamer-eval/logo.png so it works on a dark header",
       "should_trigger": true,
-      "expect_routing": "references/transparency.md"
+      "expect_routing": "references/transparency.md",
+      "scaffold": "/tmp/pixeltamer-eval/logo.png",
+      "why": "Tests whether 'cut out the background' phrasing reaches us at all. Needs the file to exist \u2014 without it the agent spends every turn searching and never reaches a tool decision, which scores as a trigger miss for the wrong reason."
     },
     {
-      "query": "we need a Meta ad creative — hook text over the product, square, punchy",
+      "query": "we need a Meta ad creative \u2014 hook text over the product, square, punchy",
       "should_trigger": true,
       "expect_routing": "recipes/meta-ad.md"
     },
-
     {
       "query": "my OPENAI_API_KEY returns 401 on chat completions, is the key expired?",
       "should_trigger": false,
@@ -74,7 +75,7 @@
       "expect_routing": null
     },
     {
-      "query": "build me a README banner with our exact brand hex codes and the repo name — needs to match our other repos byte for byte",
+      "query": "build me a README banner with our exact brand hex codes and the repo name \u2014 needs to match our other repos byte for byte",
       "should_trigger": false,
       "expect_routing": null,
       "why": "Deterministic, part of a matching set, will be revised repeatedly. This is the HTML-render path, not the generate path. If pixeltamer fires here the description is over-broad."

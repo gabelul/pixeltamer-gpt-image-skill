@@ -30,7 +30,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -39,6 +39,14 @@ const SUITE = resolve(here, 'trigger-eval.json');
 
 /** Paths that count as "the agent consulted our doctrine". */
 const DOCTRINE = /\/(references|recipes|playbook)\/[^/]+\.md$/;
+
+// A real 16x16 opaque PNG. Cases that reference "this logo" need something on
+// disk; the content is irrelevant, the existence is not.
+const PLACEHOLDER_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAKElEQVR42mNkYPhfz0AEYBxVSF' +
+  'ohxRTSKGSgFVIsIY1CBloh2RTSKGSgFQIAcXQN8Ot0LDcAAAAASUVORK5CYII=',
+  'base64',
+);
 
 /**
  * Parse CLI flags into a plain options object.
@@ -154,6 +162,14 @@ for (const [i, c] of cases.entries()) {
     console.log(`\nStopping: spent $${spent.toFixed(2)}, ceiling was $${opts.maxCost}.`);
     break;
   }
+  // Some cases name a file. If it isn't there the agent spends its whole turn
+  // budget hunting for it and never reaches a tool decision — which scores as a
+  // trigger miss for a reason that has nothing to do with the description.
+  if (c.scaffold && !existsSync(c.scaffold)) {
+    mkdirSync(dirname(c.scaffold), { recursive: true });
+    writeFileSync(c.scaffold, PLACEHOLDER_PNG);
+  }
+
   process.stdout.write(`[case ${c.n}] ${c.should_trigger ? 'want-FIRE' : 'want-QUIET'} ${c.query.slice(0, 48)}… `);
   const { tools, cost, error } = await runQuery(c.query, opts.turns, opts.permissionMode);
   spent += cost;
