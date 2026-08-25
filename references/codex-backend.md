@@ -189,3 +189,9 @@ Two deliberate limits on the upstream path:
   expiry, and looping would burn quota. The refreshed retry is granted on top of
   the `--max-retries` budget rather than deducted from it, so `--max-retries 0`
   still gets its one recovery.
+
+## `unknown arg` on a flag the docs describe
+
+Stale install, nearly always — not a wrong command. The skill you run is a copy,
+not a link to the repo. See the "documented flag doesn't exist" entry in
+`docs/dev-docs/troubleshooting.md` before changing anything about the call.

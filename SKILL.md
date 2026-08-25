@@ -223,6 +223,31 @@ The `prompts.md` format is parsed by the verifier in `scripts/verify-images.mjs`
    If it fails — say so honestly. Don't paper over a bad result with "looks great!"
 7. **Iterate or hand off.** If the result is wrong, change ONE dimension and regenerate (see iteration table in `references/prompting.md`). If the result is good, surface the file path to the user.
 
+## Flags control properties, the prompt controls content
+
+The cleanest mental model in this whole skill, and the one agents get wrong most
+often. Output **properties** are flag-controlled. Describing them in the prompt
+is unreliable and backend-dependent.
+
+| Property | Use the flag | Not the prompt |
+|---|---|---|
+| Dimensions | `--size 1536x1024`, `2K`, `4K` | "a 1536x1024 image of…" |
+| Output container | `--output-format png\|jpeg\|webp` | "save it as a webp" |
+| Compression | `--output-compression 0-100` | "compress it a bit" |
+| Render quality | `--quality low\|medium\|high` | "high quality, detailed" |
+| Variant count | `-n 4` | "give me four versions" |
+| Edit region | `--mask region.png` | "only change the top left" |
+| Reference fidelity | `--input-fidelity high` | "keep the face exactly" |
+
+The prompt is for what is *in* the picture. Size, format, count and masking are
+not in the picture.
+
+**Background is the exception, and only on codex.** On the API backend
+`--background` is a real parameter and the rule above holds. On codex there is no
+such parameter, so transparency genuinely is prompt-driven — which is why
+`--background transparent` there rewrites your prompt rather than setting a flag.
+Both facts live in `references/transparency.md`.
+
 ## Visual self-verification — non-negotiable
 
 Every generated image gets `Read`-loaded back and visually judged before claiming success. Image generation is stochastic; "API call succeeded" doesn't mean "the image is what was asked for". This step catches:

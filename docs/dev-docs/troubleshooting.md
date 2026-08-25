@@ -218,3 +218,40 @@ folding it into generation would mean decoding and re-encoding every PNG.
 **Lesson:** "Has an alpha channel" and "is a clean transparent asset" are three
 different checks apart: the channel exists, the alpha is actually used, and the RGB
 under it is scrubbed. Only the first is a header read.
+
+---
+
+## A documented flag doesn't exist: suspect a stale install before anything else
+
+**Symptom:** The docs describe `--background`, `--output-format` or
+`--input-fidelity`, and the CLI answers `unknown arg` or `unrecognized
+arguments`. The natural next move — rewriting the command, switching backend,
+re-reading the docs — is wrong every time.
+
+**Root cause:** The skill you run is not the repo you read. `~/.claude/skills/pixeltamer`
+resolves to `~/.agents/skills/pixeltamer`, which the Skills CLI populates as a
+*copy*, not a link. It only changes when something updates it. Meanwhile the
+docs on GitHub, or the working tree on your disk, moved on.
+
+Hit live during the 0.6.0 work: the installed copy was a week old, had zero
+mentions of transparency, no `references/transparency.md`, and none of the new
+flags — while the repo three directories away had all of it.
+
+**Fix:** Compare the two before debugging anything else.
+
+```bash
+# what the installed copy knows
+grep -c "output-format" ~/.claude/skills/pixeltamer/scripts/pixeltamer_api.py
+pixeltamer doctor | head -3          # prints the installed version
+
+# what the repo knows
+grep -c "output-format" ./scripts/pixeltamer_api.py
+```
+
+If they disagree, refresh the install (`npx skills update`, or rsync the working
+tree over it for a local build) and `chmod +x` the dispatcher afterwards — the
+Skills CLI strips execute bits on copy. `RELEASING.md` documents that step.
+
+**Lesson:** Borrowed from Wangnov/gpt-image-2-skill, which puts it plainly:
+*"treat `unrecognized subcommand` as stale runtime evidence first."* A flag that
+doesn't exist is far more often a deployment fact than a code fact.
