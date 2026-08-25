@@ -96,7 +96,13 @@ function callsProjectFunctions(src) {
   return found;
 }
 
-const shellScripts = readdirSync(SCRIPTS).filter((f) => f.endsWith('.sh'));
+// Skip dotfiles. macOS writes AppleDouble sidecars (`._foo.sh`) on non-APFS
+// volumes — an external drive, a USB stick, a shared mount — and they end in
+// .sh, so a bare extension filter runs these checks against binary junk and
+// silently inflates the test count. tests/index-staleness.test.mjs hit exactly
+// this and carries the same guard.
+const shellScripts = readdirSync(SCRIPTS)
+  .filter((f) => !f.startsWith('.') && f.endsWith('.sh'));
 
 for (const file of shellScripts) {
   const src = readFileSync(join(SCRIPTS, file), 'utf8');
