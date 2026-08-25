@@ -44,10 +44,10 @@
     },
     {
       "query": "cut out the background on the logo at /tmp/pixeltamer-eval/logo.png so it works on a dark header",
-      "should_trigger": true,
-      "expect_routing": "references/transparency.md",
+      "should_trigger": false,
+      "expect_routing": null,
       "scaffold": "/tmp/pixeltamer-eval/logo.png",
-      "why": "Tests whether 'cut out the background' phrasing reaches us at all. Needs the file to exist \u2014 without it the agent spends every turn searching and never reaches a tool decision, which scores as a trigger miss for the wrong reason."
+      "why": "Boundary case, and it cost a live run to settle. pixeltamer generates transparent assets; it cannot strip the background off an existing image you want to keep \u2014 `edit` would redraw the logo, and post-process.md's honest answer is rembg. Measured: agents reach for PIL/rembg here and don't invoke the skill, which is correct. Firing here would be a promise we can't keep."
     },
     {
       "query": "we need a Meta ad creative \u2014 hook text over the product, square, punchy",

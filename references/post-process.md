@@ -92,6 +92,12 @@ First question: did you actually ask for one? gpt-image-2 emits real alpha via
 `--background transparent` on **both** backends for `generate`. Regenerating with
 the right flag beats post-hoc removal every time — see `references/transparency.md`.
 
+If the image already exists and you need to *keep it* — a client's logo, a photo,
+anything you can't regenerate — pixeltamer is not the tool. `edit` would redraw
+the subject rather than preserve it. Use `rembg` or an ImageMagick chroma key,
+below. That boundary is deliberate and it's in the skill description: we make
+transparent assets, we don't strip backgrounds off existing ones.
+
 ### Shrink a transparent PNG without losing the alpha
 
 `pngquant` quantises flat illustration work hard and leaves the alpha channel

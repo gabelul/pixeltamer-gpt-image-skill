@@ -9,10 +9,11 @@ description: |
   make an image, generate a poster, draw a mockup, design an icon or sticker,
   create an ad creative, build an infographic, blend reference images, edit or
   inpaint an existing image, or produce a cutout asset with a transparent
-  background — "transparent PNG", "no background", "remove the background",
-  "cut this out", "alpha channel", "works on any background". Not for editing
-  image files without regenerating them (compression, format conversion, resizing),
-  reading or describing existing images, or video.
+  background — "transparent PNG", "no background", "alpha channel", "works on any
+  background". Not for: stripping the background off an existing image you want to
+  keep (that's rembg or ImageMagick, not a generator); file operations that don't
+  change the picture (compression, format conversion, resizing); reading,
+  describing or OCRing an image; video.
 license: MIT
 metadata:
   author: gabelul
