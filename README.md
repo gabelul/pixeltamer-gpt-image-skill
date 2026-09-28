@@ -2,11 +2,11 @@
   <img src=".github/assets/hero-with-text.png" alt="pixeltamer — image generation skill for AI coding agents" width="100%"/>
 </p>
 
-# pixeltamer — image generation skill for AI coding agents | gpt-image-2 toolkit
+# pixeltamer — image generation skill for AI coding agents | GPT Image 2.5 toolkit
 
 Six different image-gen skills were rotting in my `to_check/` folder, each doing one thing well and three things badly. So I merged them, kept the parts that earned their keep, dropped the rest. This is the result — one skill, two backends, three modes, zero generic-AI-slop output.
 
-Generate, edit, and compose images with `gpt-image-2` from inside Claude Code, Codex CLI, OpenCode, Cursor — or any agent that reads `SKILL.md`. Bring an OpenAI API key OR sign in to your ChatGPT subscription via codex; same prompts, same recipes, your call on how to pay. Ships with a prompting doctrine that drops the "8K, ultra detailed, masterpiece" magic words this model actively hates, seven production recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot — the new mascot recipe has a phased Discovery → Concept Lock → Production → Maintenance workflow with empirically-validated format choices), a curated `playbook/` of remixable prompts for character-sheets and typography-posters, a central `references/index.md` routing map so the right recipe gets loaded on first try, and a 39-test suite covering the multi-image batch verifier plus the index-staleness check. Zero runtime dependencies — every backend and helper runs on stock bash / Python stdlib / Node, nothing to `npm install`.
+Generate, edit, and compose images with GPT Image 2.5 from inside Claude Code, Codex CLI, OpenCode, Cursor — or any agent that reads `SKILL.md`. API calls default to fast `gpt-image-2.5-flare`; set `OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst` when quality and edit precision matter more than latency. Bring an OpenAI API key OR sign in to your ChatGPT subscription via codex; same prompts, same recipes, your call on how to pay. Ships with a prompting doctrine that drops the "8K, ultra detailed, masterpiece" magic words this model actively hates, seven production recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot — the new mascot recipe has a phased Discovery → Concept Lock → Production → Maintenance workflow with empirically-validated format choices), a curated `playbook/` of remixable prompts for character-sheets and typography-posters, a central `references/index.md` routing map so the right recipe gets loaded on first try, and a 78-test suite covering model selection, the multi-image batch verifier, transparency, and index staleness. Zero runtime dependencies — every backend and helper runs on stock bash / Python stdlib / Node, nothing to `npm install`.
 
 Works in Claude Code, Codex CLI, OpenCode, Cursor, and 50+ other agents via [the Skills CLI](https://github.com/vercel-labs/skills).
 
@@ -185,7 +185,7 @@ pixeltamer/
 ├── recipes/                    7 deep how-to recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot)
 ├── playbook/                   curated remix prompts (v1: character-sheets, typography-posters); BACKLOG.md stages v2/v3/v4
 ├── examples/                   4 demonstration PNGs (~3 MB)
-└── tests/                      39 tests — parser + verifier + status writer + image-dimension reader + index-staleness sync check
+└── tests/                      78 tests — model selection + parser + verifier + status writer + image/alpha readers + index sync
 ```
 
 ---
@@ -205,7 +205,7 @@ Plus [50+ more agents](https://github.com/vercel-labs/skills) via the Skills CLI
 
 ## Prerequisites
 
-- **For the API backend:** an `OPENAI_API_KEY` with org verification for gpt-image-2 (https://platform.openai.com/settings/organization/general). Python 3.7+ on the machine.
+- **For the API backend:** an `OPENAI_API_KEY` with GPT Image org verification (https://platform.openai.com/settings/organization/general). Python 3.7+ on the machine.
 - **For the codex backend:** `npm install -g @openai/codex`, then `codex login`. ChatGPT Plus / Team / Enterprise subscription.
 - **For batch mode:** Node.js 18+ (covered by most recent npm installs).
 - **For multi-target install:** `npx` (ships with npm).

@@ -2,7 +2,7 @@
 
 ## What this is
 
-A skill (markdown + small scripts) that generates, edits, and composes images via gpt-image-2. Works with Claude Code, Codex CLI, OpenCode, Cursor, and 40+ other agents via the Skills CLI.
+A skill (markdown + small scripts) that generates, edits, and composes images via GPT Image 2.5. Works with Claude Code, Codex CLI, OpenCode, Cursor, and 40+ other agents via the Skills CLI.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ recipes/
   editorial-cover.md
   product-photo.md
 examples/                            — 4 curated demonstration PNGs
-tests/                               — 53 unit tests covering parser, verifier, status writer, image-dimension + alpha reader
+tests/                               — 78 tests covering model selection, parser, verifier, status writer, image-dimension + alpha reader
 ```
 
 ## How the skill works
@@ -53,7 +53,7 @@ tests/                               — 53 unit tests covering parser, verifier
 
 ## The two backends
 
-Both speak gpt-image-2 but via different transports:
+Both use GPT Image generation through different transports. The API defaults to `gpt-image-2.5-flare`; the Codex service selects its image model:
 
 **API backend** (`pixeltamer_api.py`):
 - POSTs to `/images/generations` (text-to-image) or `/images/edits` (edit / compose).
@@ -100,7 +100,7 @@ The parser, verifier, and status writer are pure functions with dependency injec
 | Latency per image | ~10–20s | ~30–90s (reasoning loop) |
 | Transparent background (real alpha) | ✅ param on all modes | ✅ `generate` only — no param, so the flag becomes prompt text + a post-gen alpha check |
 | Output file format (png / jpeg / webp) | ✅ | ❌ — both transports always return PNG |
-| Input fidelity (preserve faces / logos on edit+compose) | ✅ `--input-fidelity high` | ❌ — transport doesn't expose it |
+| Input fidelity (preserve faces / logos on edit+compose) | ✅ optional `--input-fidelity high` where model supports it | service-selected; no explicit knob |
 | Edit / inpaint | ✅ | ❌ |
 | Multi-reference compose | ✅ (up to 16 refs) | ❌ |
 | Mask / region edit | ✅ | ❌ |
@@ -126,7 +126,7 @@ Tests lean on dependency injection (the size reader, fs, GitHub/npm lookups are 
 
 ## What pixeltamer is NOT
 
-- Not a video generator. gpt-image-2 is image only.
+- Not a video generator. GPT Image models are image only.
 - Not a Photoshop replacement. It's the engine, not a layered editor.
 - Not a brand-asset pipeline. Generates references, not final spec deliverables.
 - Not free. Either API per-image cost or your ChatGPT subscription rate-limit budget.

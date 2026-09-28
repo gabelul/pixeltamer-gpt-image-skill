@@ -4,7 +4,7 @@ The default and most capable backend. Talks to `/images/generations` and `/image
 
 ## When to use
 
-- You have an OpenAI API key with gpt-image-2 access.
+- You have an OpenAI API key with GPT Image access.
 - You need full feature parity: edits, masks, multi-reference composition, custom resolutions, parallel batches, quality tiers, transparent backgrounds.
 - You want generation under ~15 seconds per image.
 
@@ -33,7 +33,28 @@ This is how you point pixeltamer at proxies and OpenAI-compatible hosts (jmrai.n
 
 ## Model
 
-`OPENAI_IMAGE_MODEL` overrides the default `gpt-image-2`. Other supported models on the OpenAI host: `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`. Drop down for speed/cost on iteration loops, swap back to `gpt-image-2` for final renders.
+Default: `gpt-image-2.5-flare`. OpenAI recommends Flare for fast, high-quality everyday work; it improves editing and subject preservation over GPT Image 2 while cutting latency.
+
+Use Sunburst when output quality or edit precision matters more than speed:
+
+```bash
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst pixeltamer generate -p "..." -o final.png
+```
+
+`OPENAI_IMAGE_MODEL` changes the default for every API subcommand. Per-call `--model` wins over the environment:
+
+```bash
+pixeltamer generate --model gpt-image-2.5-sunburst -p "..." -o final.png
+```
+
+Available OpenAI model IDs include:
+
+- `gpt-image-2.5-flare` — default; fast everyday generation and editing.
+- `gpt-image-2.5-sunburst` — best quality and edit precision; slower.
+- `gpt-image-2` — previous model; useful as a migration baseline or rollback.
+- `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini` — older compatibility choices.
+
+Both 2.5 aliases currently point at dated `2026-09-08` snapshots. Use the undated alias for automatic upgrades, or the dated ID when repeatability matters.
 
 ## Endpoints used
 
@@ -48,10 +69,14 @@ This is how you point pixeltamer at proxies and OpenAI-compatible hosts (jmrai.n
 ## Sizes
 
 Any WxH satisfying:
+For GPT Image 2 and 2.5:
+
 - max edge ≤ 3840px
 - both edges multiples of 16
 - long:short ratio ≤ 3:1
-- total pixels ≤ 8,294,400 (≈ 4K landscape)
+- total pixels from 655,360 through 8,294,400 (≈ 4K landscape at the upper bound)
+
+Custom hosts keep their own minimum-size rules; pixeltamer only applies the 655,360-pixel floor to known GPT Image 2/2.5 model IDs.
 
 Common picks:
 - `1024x1024` (square, default)
@@ -66,9 +91,9 @@ Common picks:
 
 ## Quality tiers
 
-`low | medium | high | auto | standard | hd`
+`low | medium | high | xhigh | max | auto | standard | hd`
 
-`auto` lets the model pick. `high` is the production default — it's only meaningfully more expensive than `low` on official OpenAI billing; many compatible hosts charge the same across tiers.
+GPT Image 2.5 supports `low`, `medium`, `high`, `xhigh`, `max`, and `auto`. `high` remains pixeltamer's production default. `standard` and `hd` stay available for older models and compatible hosts. Pick the model first, then raise quality only if the result misses a concrete requirement.
 
 ## Parallel batches (`-n N`)
 
@@ -83,7 +108,7 @@ Each parallel call is independent — partial failures don't take down the batch
 
 Built into `_send`. Retries 4 times on `429` (rate limit) and `5xx` errors with exponential backoff (1s, 2s, 4s, 8s + jitter). Surfaces `4xx` errors immediately — no point retrying a malformed request.
 
-If a `403` comes back, pixeltamer adds a hint pointing at https://platform.openai.com/settings/organization/general — the most common cause is "your org isn't verified for gpt-image-2 yet."
+If a `403` comes back, pixeltamer adds a hint pointing at https://platform.openai.com/settings/organization/general — the most common cause is missing GPT Image organization verification.
 
 ## Transparency and output format
 
@@ -94,10 +119,10 @@ pixeltamer generate -p "..." --output-format webp --output-compression 85 -o her
 
 | Flag | Values | Notes |
 |---|---|---|
-| `--background` | `transparent` \| `opaque` \| `auto` | Preview status on gpt-image-2. Auto-pins `--output-format png` |
+| `--background` | `transparent` \| `opaque` \| `auto` | Supported by both GPT Image 2.5 models. Auto-pins `--output-format png` |
 | `--output-format` | `png` \| `jpeg` \| `webp` | Maps to the API's `output_format`. gpt-image models only |
 | `--output-compression` | `0`–`100` | jpeg / webp only; ignored for png |
-| `--input-fidelity` | `high` \| `low` | edit / compose only. `high` preserves faces, logos, texture. Only the FIRST `-i` gets the extra texture richness |
+| `--input-fidelity` | `high` \| `low` | edit / compose only. Optional fidelity control where supported; `high` preserves faces, logos, and texture |
 | `--format` | `url` \| `b64_json` | **Legacy.** Maps to `response_format`, which gpt-image models ignore — they always return base64. Kept only because OpenAI-compatible proxies may still honour it |
 
 `--background transparent --output-format jpeg` is rejected up front rather than
@@ -134,13 +159,13 @@ pixeltamer generate -p "..." -n 4 | head -1  # grab the first
 | Error | Likely cause | Fix |
 |---|---|---|
 | `HTTP 401` | Bad / missing API key | Re-check `OPENAI_IMAGE_API_KEY` |
-| `HTTP 403` | Org not verified for gpt-image-2 | Verify at platform.openai.com |
+| `HTTP 403` | Org not verified for GPT Image models | Verify at platform.openai.com |
 | `HTTP 429` | Rate limit | Pixeltamer retries automatically; if it surfaces, your account hit a hard cap |
 | `HTTP 400 — invalid size` | Out-of-range WxH | Stay under 3840px max edge, multiples of 16, ≤3:1 ratio |
 | Empty `data` array | Content moderation rejected | Rephrase and drop the element that tripped it. `--moderation low` is the escape hatch where your account allows it — it loosens filtering, it doesn't disable it |
 | Opaque PNG despite `--background transparent` | Prompt described a backdrop / scene / cast shadow — prompt text outranks the flag | Strip environment words, add the constraint block from `references/transparency.md` |
-| Faces or logos come back "similar but wrong" on an edit | `input_fidelity` defaults to `low` | Pass `--input-fidelity high`; put the critical reference first |
-| `HTTP 400` mentioning `background` | Org or model doesn't have transparency enabled (it's preview on gpt-image-2) | Fall back to chroma-key + `post-process.md` |
+| Faces or logos come back "similar but wrong" on a GPT Image 2.5 edit | Model drift despite high-fidelity input processing | Put the critical reference first; use Sunburst; restate exact identity/geometry constraints |
+| `HTTP 400` mentioning `background` | Compatible host or selected older model doesn't support transparency | Use a GPT Image 2.5 model, or fall back to chroma-key + `post-process.md` |
 | Timeout (10 min default) | Very large size + high quality | Drop to `--quality medium` while iterating |
 
 ## Env file loading

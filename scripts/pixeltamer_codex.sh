@@ -159,7 +159,7 @@ fi
 readonly EXIT_TIMEOUT=124
 
 # How long a single codex invocation may run before we kill it. 360s is roomy
-# for gpt-image-2 (normal gens land in 30-90s) and far short of the 71-minute
+# for GPT Image generation (normal gens land in 30-90s) and far short of the 71-minute
 # orphan that prompted this.
 CODEX_TIMEOUT="${PIXELTAMER_CODEX_TIMEOUT:-360}"
 [[ "$CODEX_TIMEOUT" =~ ^[0-9]+$ ]] || { echo "$prog: PIXELTAMER_CODEX_TIMEOUT must be an integer (seconds)" >&2; exit 2; }
@@ -456,7 +456,7 @@ build_forced_prompt() {
     ref_note=$'\n\n''REFERENCES: '"${#images[@]}"' image(s) are attached to this message. Use them as the visual anchor — match the character design, palette, lighting, and proportions. Generate a new composition in the same visual world; do not literally copy them.'
   fi
   cat <<EOF
-Use your image_generation tool (gpt-image-2) to create $count image(s).${ref_note}
+Use your image_generation tool to create $count image(s).${ref_note}
 
 PROMPT: $prompt
 SIZE: $size

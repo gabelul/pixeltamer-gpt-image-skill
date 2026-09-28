@@ -1,6 +1,6 @@
 ---
 name: pixeltamer
-description: Generate, edit, compose images via gpt-image-2, including transparent PNGs with a real alpha channel. Two backends (OpenAI API or codex CLI), four modes (generate, edit, compose, batch). Use for any image-make request, including "transparent PNG", "no background", "alpha channel". Not for stripping the background off an existing image you want to keep (that's rembg), compressing/converting/resizing files, describing images, or video.
+description: Generate, edit, compose images via GPT Image 2.5, including transparent PNGs with a real alpha channel. Two backends (OpenAI API or codex CLI), four modes (generate, edit, compose, batch). Use for any image-make request, including "transparent PNG", "no background", "alpha channel". Not for stripping the background off an existing image you want to keep (that's rembg), compressing/converting/resizing files, describing images, or video.
 version: 0.1.0
 author: gabelul
 tags: [image-generation, gpt-image, claude-code-skill, codex-cli, ai-image]
@@ -18,7 +18,7 @@ Make/generate/draw an image, poster, illustration, mockup, icon, sticker, sprite
 
 | Backend | Auth | Strengths | Limits |
 |---|---|---|---|
-| `api` | `OPENAI_API_KEY` / `OPENAI_IMAGE_API_KEY` | fastest, all modes, custom hosts | per-image cost, org must be verified for gpt-image-2 |
+| `api` | `OPENAI_API_KEY` / `OPENAI_IMAGE_API_KEY` | defaults to fast `gpt-image-2.5-flare`, all modes, custom hosts | per-image cost, org must be verified for GPT Image access |
 | `codex` | `codex login` (ChatGPT subscription) | no API key, included in plan, transparency works on `generate` | slower; no `--output-format`; no transparency on edit/compose |
 
 Auto-detect: api if key set, else codex. Override: `--backend api|codex` or `PIXELTAMER_BACKEND` env.
@@ -31,7 +31,7 @@ Use `AskUserQuestion` instead. Offer:
 
 | Option | What | Friction |
 |---|---|---|
-| API key | fastest, all modes | per-image cost; org must be verified for gpt-image-2 |
+| API key | fast Flare default, all modes; Sunburst via `OPENAI_IMAGE_MODEL` | per-image cost; org must be verified for GPT Image access |
 | Codex CLI | ChatGPT subscription, no key | generate only; slower |
 
 **API path — recommended setup (no agent restart):**
@@ -65,16 +65,16 @@ After setup → re-run `pixeltamer doctor` → proceed with request.
 ```
 -p PROMPT              required
 -o PATH                output path or dir; auto-suffixed -01..-NN when n>1
---size WxH             max edge <3840, multiples of 16, ratio ≤3:1, ≤8.29M total px
---quality              low|medium|high|auto (default: high)
+--size WxH             max edge ≤3840, multiples of 16, ratio ≤3:1, 655,360–8.29M total px
+--quality              low|medium|high|auto (default: high); API + GPT Image 2.5 also xhigh|max
 -n N                   parallel calls when N>1
 --concurrency C        max parallel HTTP (default 4)
 -i PATH                reference image (repeatable for compose)
 --mask PATH            inpaint mask (edit only); white = regenerate
 --background           transparent|opaque|auto — both backends (generate only on codex)
 --output-format        png|jpeg|webp — API backend only
---input-fidelity       high|low — edit/compose, API only; high preserves faces/logos.
-                       Only the FIRST -i gets extra texture richness — order matters.
+--input-fidelity       high|low — optional API edit/compose control where supported.
+                       GPT Image 2.5 improves preservation; put critical reference first.
 --backend api|codex    override auto-detect
 ```
 

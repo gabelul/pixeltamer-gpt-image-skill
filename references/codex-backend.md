@@ -40,7 +40,7 @@ pixeltamer_codex.sh
 codex exec --skip-git-repo-check -s workspace-write
    "<augmented prompt instructing codex to use image_gen>"
    ↓
-codex reasons, calls its built-in image_gen tool (gpt-image-2)
+codex reasons, calls its built-in image_gen tool (image model selected by the service)
    ↓
 PNG saved to ~/.codex/generated_images/<session>/ig_*.png
    ↓
@@ -72,7 +72,7 @@ Perform the following tasks:
 Used as fallback when pattern 1 produces no PNG. Adds explicit guardrails so codex doesn't fabricate a PNG via Python or curl:
 
 ```
-Use your image_generation tool (gpt-image-2) to create <N> image(s).
+Use your image_generation tool to create <N> image(s).
 
 PROMPT: <prompt>
 SIZE: <size>
@@ -86,7 +86,7 @@ Requirements:
 - Reply with only the absolute path(s) of the saved PNG(s), one per line. Nothing else.
 ```
 
-The script logs which pattern won (`pixeltamer_codex.sh: ok (pattern: clean)` or `(pattern: forced)`) so you can spot drift over time.
+The script logs which pattern won (`pixeltamer_codex.sh: ok (pattern: clean)` or `(pattern: forced)`) so you can spot drift over time. Codex selects the image model for this consumer transport; `OPENAI_IMAGE_MODEL` and `--model` only affect the direct API backend.
 
 ## Recovery: scanning the cache
 

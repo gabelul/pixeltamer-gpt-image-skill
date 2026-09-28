@@ -69,9 +69,8 @@ UPSTREAM_BASE = "https://chatgpt.com/backend-api/codex"
 REFRESH_ENDPOINT = "https://auth.openai.com/oauth/token"
 REFRESH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
-# The chat model that wraps the image_generation tool. Different from
-# gpt-image-2 (which is the actual image model) — gpt-5.4 is what
-# orchestrates the tool call.
+# The chat model that wraps the image_generation tool. Different from the
+# service-selected GPT Image model — gpt-5.4 orchestrates the tool call.
 RESPONSES_MODEL = "gpt-5.4"
 
 # Free-form client identifier sent in the `originator` header. Helps OpenAI
@@ -83,7 +82,7 @@ ORIGINATOR = "pixeltamer"
 # typography sharpness on dense infographics.
 OUTPUT_FORMAT = "png"
 
-# Sizes the Responses API accepts. Subset of what gpt-image-2 supports — the
+# Sizes this Codex Responses transport accepts. The service selects its GPT Image model; the
 # "auto" sentinel lets the model pick based on the input. For edits we
 # usually want to match the source aspect ratio, so default is "auto".
 SUPPORTED_SIZES = (
@@ -366,7 +365,7 @@ def extract_image_b64(events: list[dict]) -> str | None:
 
 # Error codes we treat as transient infra failures and worth retrying. Hit on
 # response.failed events when OpenAI's internal pipeline drops mid-generation
-# (the gpt-image-2 backend's WS dies, the codex-lb proxy hits a capacity wall,
+# (the image backend's WS dies, the codex-lb proxy hits a capacity wall,
 # a worker times out). All of these are "try again in a moment, it'll probably
 # work" — distinct from 4xx (bad request, never going to work) or "model
 # declined to call the tool" (retrying won't change its mind on the same input).
@@ -419,7 +418,7 @@ def run_one(*, prompt: str, images: list[Path], size: str, out: Path, debug: boo
     response.failed events whose error.code is in RETRIABLE_FAILURE_CODES
     (websocket_error, server_error, rate_limit_exceeded, service_unavailable).
     These are the OpenAI/codex-lb-side blips that don't reflect a problem
-    with the request — the internal WS to gpt-image-2 dropped mid-generation,
+    with the request — the internal image-generation WS dropped mid-generation,
     a worker timed out, the load balancer hit a wall. Retrying tends to work.
 
     Does NOT retry on: HTTP 4xx (we did something wrong — bad shape, bad

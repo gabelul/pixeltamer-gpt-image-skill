@@ -426,7 +426,7 @@ env:
   OPENAI_API_KEY / OPENAI_IMAGE_API_KEY     OpenAI API auth
   PIXELTAMER_BACKEND                         api | codex | auto
   OPENAI_IMAGE_BASE_URL                      override API base URL
-  OPENAI_IMAGE_MODEL                         override model (default gpt-image-2)
+  OPENAI_IMAGE_MODEL                         override API model (default gpt-image-2.5-flare)
 
 run \`$prog <subcommand> --help\` for per-command flags.
 EOF

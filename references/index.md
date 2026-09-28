@@ -42,7 +42,7 @@ For questions our docs don't cover. These are stable, public, and worth checking
 - **OpenAI Cookbook — Transparent Image Assets for Campaigns and Presentations**: <https://developers.openai.com/cookbook/examples/multimodal/transparent-image-assets-for-campaigns-and-presentations>
   Use when: you want OpenAI's own worked example of the generate-isolated-assets-then-composite workflow, including their alpha-coverage validation pass. Our `references/transparency.md` covers the same ground with pixeltamer's flags.
 - **OpenAI Cookbook — Generate Images With High Input Fidelity**: <https://cookbook.openai.com/examples/generate_images_with_high_input_fidelity>
-  Use when: an edit or compose has to keep a face, logo, or label typography recognisable. Source of the `--input-fidelity` guidance and the first-reference-gets-extra-richness rule in `multi-reference.md`.
+  Use when: a model or compatible host exposes `--input-fidelity`, or an edit/compose needs careful reference ordering to keep a face, logo, or label typography recognisable.
 - **OpenAI Cookbook — Image Evals**: <https://cookbook.openai.com/examples/multimodal/image_evals>
   Use when: you need to judge generated images systematically rather than by eye — instruction following, text rendering accuracy, edit locality (did the change stay inside the intended region), and preservation of everything else. The framework behind our visual self-verification step.
 - **OpenAI Cookbook — Grounded Spatial Reasoning and Layouts**: <https://cookbook.openai.com/examples/multimodal/grounded_spatial_reasoning_layouts>

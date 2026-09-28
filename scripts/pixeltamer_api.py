@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pixeltamer_api.py — call gpt-image-2 over the OpenAI-compatible Images API.
+"""pixeltamer_api.py — call GPT Image models over an OpenAI-compatible Images API.
 
 Subcommands:
   generate   POST /images/generations  (text -> image)
@@ -11,7 +11,7 @@ Auth:
   OPENAI_API_KEY         — fallback
   OPENAI_IMAGE_BASE_URL  — override base URL (default https://api.openai.com/v1)
   OPENAI_BASE_URL        — fallback for base URL
-  OPENAI_IMAGE_MODEL     — override default model (default gpt-image-2)
+  OPENAI_IMAGE_MODEL     — override default model (default gpt-image-2.5-flare)
 
 Env file loading: looks for .env in cwd, ~/.config/pixeltamer/.env, ~/.claude/.env,
 and the script directory. First match wins. Existing process env is never overridden.
@@ -255,15 +255,16 @@ DEFAULT_BASE = (
     or os.environ.get("OPENAI_BASE_URL")
     or "https://api.openai.com/v1"
 )
-DEFAULT_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2")
+DEFAULT_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
 DEFAULT_QUALITY = "high"
 DEFAULT_CONCURRENCY = 4
 MAX_REFERENCE_IMAGES = 16
 MAX_SIDE = 3840
 MAX_RATIO = 3.0
 # 3840x2160 exactly. Also what makes 2880x2880 the practical square ceiling.
+MIN_TOTAL_PIXELS = 655_360
 MAX_TOTAL_PIXELS = 8_294_400
-# gpt-image-2 takes arbitrary WxH, but both edges must be divisible by 16.
+# GPT Image 2+ takes arbitrary WxH, but both edges must be divisible by 16.
 SIZE_EDGE_MULTIPLE = 16
 
 # Shorthands people actually type. Resolved before validation.
@@ -293,16 +294,26 @@ def _resolve_size(size: str) -> str:
     return SIZE_ALIASES.get(size.strip().lower(), size)
 
 
-def _validate_size(size: str) -> None:
-    """Reject sizes the model won't accept, before paying for a roundtrip.
+def _uses_gpt_image_2_size_floor(model: str) -> bool:
+    """Return whether OpenAI documents the 655,360px floor for this model family.
+
+    Custom providers can expose unrelated size rules behind arbitrary model IDs,
+    so only enforce the new floor for GPT Image 2 and 2.5 aliases/snapshots.
+    """
+    normalized = model.lower()
+    return normalized == "gpt-image-2" or normalized.startswith("gpt-image-2-") or normalized.startswith("gpt-image-2.5-")
+
+
+def _validate_size(size: str, model: str) -> None:
+    """Reject sizes the selected model won't accept, before paying for a roundtrip.
 
     Four constraints, all from OpenAI's spec. Every one of these is a 400 you'd
     otherwise pay a network roundtrip to discover:
 
       - both edges divisible by 16
       - longest edge at most 3840
-      - total pixels at most 8,294,400 (which is 3840x2160, and is also why
-        2880x2880 is the practical square ceiling)
+      - total pixels from 655,360 through 8,294,400 (the upper bound is
+        3840x2160, and is also why 2880x2880 is the practical square ceiling)
       - aspect ratio within 3:1 either way
     """
     if size in ("auto", ""):
@@ -326,11 +337,18 @@ def _validate_size(size: str) -> None:
             f"{round(w / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}x"
             f"{round(h / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}"
         )
-    if w * h > MAX_TOTAL_PIXELS:
+    pixels = w * h
+    if _uses_gpt_image_2_size_floor(model) and pixels < MIN_TOTAL_PIXELS:
+        _fail(
+            "invalid_size",
+            f"total pixels must be ≥ {MIN_TOTAL_PIXELS:,} "
+            f"(got {pixels:,} for {w}x{h})."
+        )
+    if pixels > MAX_TOTAL_PIXELS:
         _fail(
             "invalid_size",
             f"total pixels must be ≤ {MAX_TOTAL_PIXELS:,} "
-            f"(got {w * h:,} for {w}x{h}). 3840x2160 and 2880x2880 both sit "
+            f"(got {pixels:,} for {w}x{h}). 3840x2160 and 2880x2880 both sit "
             f"exactly on the cap."
         )
     ratio = max(w, h) / min(w, h)
@@ -443,11 +461,11 @@ def _send(req: urllib.request.Request, retries: int = 4) -> dict:
                 time.sleep(wait)
                 last_err = f"HTTP {e.code}: {body[:200]}"
                 continue
-            # 403 is a common "your org isn't verified for gpt-image-2" wall.
+            # 403 commonly means the org has not been verified for GPT Image access.
             hint = ""
             if e.code == 403:
                 hint = (
-                    "\n  hint: verify your org for gpt-image-2 at "
+                    "\n  hint: verify your org for GPT Image models at "
                     "https://platform.openai.com/settings/organization/general"
                 )
             sys.exit(f"HTTP {e.code} from {req.full_url}\n{body}{hint}")
@@ -642,7 +660,7 @@ def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]
 
 def cmd_generate(a: argparse.Namespace) -> None:
     a.size = _resolve_size(a.size)
-    _validate_size(a.size)
+    _validate_size(a.size, a.model)
     payload: dict = {
         "model": a.model,
         "prompt": a.prompt,
@@ -703,7 +721,7 @@ def cmd_generate(a: argparse.Namespace) -> None:
 def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     """Shared body: 1 image -> edit/inpaint, 2-16 images -> compose."""
     a.size = _resolve_size(a.size)
-    _validate_size(a.size)
+    _validate_size(a.size, a.model)
     refs = list(a.image)
     if not refs:
         _fail("invalid_argument", "at least one --image required", field="image")
@@ -792,7 +810,7 @@ class _JsonAwareParser(argparse.ArgumentParser):
 def main() -> None:
     ap = _JsonAwareParser(
         prog="pixeltamer_api.py",
-        description="Call gpt-image-2 over the OpenAI-compatible Images API.",
+        description="Call GPT Image models over an OpenAI-compatible Images API.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Tips:\n"
@@ -806,7 +824,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     common_quality: dict[str, Any] = dict(
-        choices=["low", "medium", "high", "auto", "standard", "hd"],
+        choices=["low", "medium", "high", "xhigh", "max", "auto", "standard", "hd"],
         default=DEFAULT_QUALITY,
         help=f"rendering quality (default {DEFAULT_QUALITY})",
     )
@@ -816,13 +834,14 @@ def main() -> None:
     g.add_argument("-p", "--prompt", required=True, help="text prompt")
     g.add_argument("--size", default="1024x1024",
                    metavar="WxH|2K|4K|auto",
-                   help="WxH or 'auto'; max side <3840, ratio ≤3:1")
+                   help="WxH or 'auto'; max side ≤3840, ratio ≤3:1")
     g.add_argument("-n", type=int, default=1,
                    help="number of images (parallel calls; default 1)")
     g.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     g.add_argument("-o", "--out",
                    help="output file path or directory; auto-suffixed when n>1")
-    g.add_argument("--model", default=DEFAULT_MODEL)
+    g.add_argument("--model", default=DEFAULT_MODEL,
+                   help=f"image model (default {DEFAULT_MODEL}; env OPENAI_IMAGE_MODEL)")
     g.add_argument("--quality", **common_quality)
     g.add_argument("--style", choices=["vivid", "natural"])
     g.add_argument("--background", choices=["transparent", "opaque", "auto"],
@@ -852,12 +871,12 @@ def main() -> None:
     e.add_argument("-n", type=int, default=1)
     e.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     e.add_argument("-o", "--out")
-    e.add_argument("--model", default=DEFAULT_MODEL)
+    e.add_argument("--model", default=DEFAULT_MODEL,
+                   help=f"image model (default {DEFAULT_MODEL}; env OPENAI_IMAGE_MODEL)")
     e.add_argument("--quality", **common_quality)
     e.add_argument("--input-fidelity", choices=["high", "low"],
-                   help="high preserves faces, logos and fine texture from the "
-                        "input images (default low). Only the FIRST image gets "
-                        "the extra texture richness — order your refs accordingly")
+                   help="optional edit fidelity control; high preserves faces, "
+                        "logos and fine texture when supported by the model/host")
     e.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
     e.add_argument("--output-format", choices=["png", "jpeg", "webp"])
@@ -882,12 +901,12 @@ def main() -> None:
     c.add_argument("-n", type=int, default=1)
     c.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY)
     c.add_argument("-o", "--out")
-    c.add_argument("--model", default=DEFAULT_MODEL)
+    c.add_argument("--model", default=DEFAULT_MODEL,
+                   help=f"image model (default {DEFAULT_MODEL}; env OPENAI_IMAGE_MODEL)")
     c.add_argument("--quality", **common_quality)
     c.add_argument("--input-fidelity", choices=["high", "low"],
-                   help="high preserves faces, logos and fine texture from the "
-                        "input images (default low). Only the FIRST image gets "
-                        "the extra texture richness — order your refs accordingly")
+                   help="optional edit fidelity control; high preserves faces, "
+                        "logos and fine texture when supported by the model/host")
     c.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
     c.add_argument("--output-format", choices=["png", "jpeg", "webp"])

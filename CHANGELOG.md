@@ -44,6 +44,8 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ### Changed
 
+- **API default upgraded to `gpt-image-2.5-flare`.** Flare is OpenAI's recommended everyday model, with better editing and subject preservation than GPT Image 2 at lower latency. `gpt-image-2.5-sunburst` is available through `--model` or `OPENAI_IMAGE_MODEL` for maximum quality and edit precision; the old `gpt-image-2` remains usable as a rollback. GPT Image 2.5's `xhigh` and `max` quality tiers are now accepted, and its documented 655,360-pixel minimum is validated before requests without imposing that rule on custom provider models.
+
 - **The skill description now mentions transparency.** It is the only thing deciding whether an agent reaches for pixeltamer, and it had no transparency vocabulary at all — "cut out the background on this logo" matched nothing. It also gained an explicit negative clause, replacing a `"anything else that ends in a PNG"` tail broad enough to catch "compress every PNG under 100KB". The negative names where to go instead: stripping the background off an existing image you want to keep is rembg's job, not ours — a live test showed agents correctly reach for PIL there and never consider us, and claiming it in the description was promising something `edit` would answer by redrawing the subject.
 
 - **Chroma-key green screens are demoted to fallback** across `prompting.md`, `ui-mockup-prompting.md`, `infographic.md` and `post-process.md`. They earn their place for subjects the model won't cut cleanly and for codex `edit`/`compose`; they are no longer the default answer.

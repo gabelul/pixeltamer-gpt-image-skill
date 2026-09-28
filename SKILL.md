@@ -1,7 +1,7 @@
 ---
 name: pixeltamer
 description: |
-  Generate, edit, and compose images with gpt-image-2, including transparent PNGs
+  Generate, edit, and compose images with GPT Image 2.5, including transparent PNGs
   with a real alpha channel. Two backends — OpenAI API key or codex CLI (uses your
   ChatGPT subscription, no key needed). Four modes — one-shot generate, edit or
   inpaint an existing image, multi-reference composition (up to 16 inputs blended
@@ -41,9 +41,9 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# pixeltamer — generate, edit, and compose images with gpt-image-2
+# pixeltamer — generate, edit, and compose images with GPT Image 2.5
 
-Image generation that actually does what you asked for. Two backends so you don't have to pick a side: bring an OpenAI API key OR use the codex CLI signed in to your ChatGPT subscription. Same skill, same prompts, same output format, your choice of how to pay.
+Image generation that actually does what you asked for. Two backends so you don't have to pick a side: bring an OpenAI API key OR use the codex CLI signed in to your ChatGPT subscription. The API backend defaults to `gpt-image-2.5-flare` and accepts `--model`; Codex selects its image model server-side. Same skill, same prompts, your choice of how to pay.
 
 ## When to use this
 
@@ -93,7 +93,7 @@ echo 'OPENAI_IMAGE_API_KEY=sk-yourkeyhere' > ~/.config/pixeltamer/.env
 chmod 600 ~/.config/pixeltamer/.env
 ```
 
-If their org isn't verified for gpt-image-2, the first call returns 403 — point them at https://platform.openai.com/settings/organization/general for the one-time verification.
+If their org isn't verified for GPT Image access, the first call returns 403 — point them at https://platform.openai.com/settings/organization/general for the one-time verification.
 
 If they prefer dotfiles instead, `export OPENAI_API_KEY="sk-..."` in `~/.zshrc` (or `.bashrc`) works too — but they'll need to **restart the agent** so the new env is inherited. The `.env` file path doesn't have that requirement.
 
@@ -185,10 +185,10 @@ pixeltamer compose \
 
 This is the killer feature. See `references/multi-reference.md` for the labeling pattern that actually works.
 
-Two flags decide whether the references survive the blend: `--input-fidelity high`
-preserves faces, logos and fine texture (default is `low`, which reinterprets
-them), and **reference order matters** — only the first `-i` gets the extra
-texture richness, so put the thing you can least afford to lose first.
+Reference order still matters: put the face, logo, or product detail you can
+least afford to lose first. GPT Image 2.5 improves subject preservation by
+default. `--input-fidelity high` remains available on direct API edits for
+models and hosts that expose that control.
 
 ### Mode 4 — Batch (multi-image plan with verification)
 
@@ -237,7 +237,7 @@ is unreliable and backend-dependent.
 | Render quality | `--quality low\|medium\|high` | "high quality, detailed" |
 | Variant count | `-n 4` | "give me four versions" |
 | Edit region | `--mask region.png` | "only change the top left" |
-| Reference fidelity | `--input-fidelity high` | "keep the face exactly" |
+| Reference fidelity | GPT Image 2.5: critical reference first; older models: `--input-fidelity high` | "keep the face exactly" |
 
 The prompt is for what is *in* the picture. Size, format, count and masking are
 not in the picture.
@@ -297,7 +297,7 @@ Pull only what's needed for the current job. Don't dump them all.
 
 | Don't | Why |
 |---|---|
-| "8K, ultra detailed, masterpiece, trending on artstation" | Old-model magic words. gpt-image-2 ignores them or worse. |
+| "8K, ultra detailed, masterpiece, trending on artstation" | Magic words don't specify a visual result. Describe materials, light, framing, and texture instead. |
 | "professional, beautiful, premium, stunning" | Praise language with zero instructional content. |
 | Generating before checking which backend is available | Run `pixeltamer doctor` first if it's the first call this session. |
 | Edit / compose on codex backend | Works since 0.3.0 via the OAuth Responses API (`pixeltamer_codex_oauth.py`). Mask-based inpainting still requires the API path — the Responses API doesn't take a mask parameter. So does any edit needing a specific output size: codex returns the input's aspect and ignores `--size`. |
@@ -311,17 +311,18 @@ Pull only what's needed for the current job. Don't dump them all.
 
 | Need | Use |
 |---|---|
-| Fastest single image | API |
+| Fastest single image | API with the default `gpt-image-2.5-flare` |
 | Don't have / don't want an API key | codex |
 | Edit an existing image (no mask) | Either backend — API or codex-OAuth |
 | Mask-based inpainting | API only — Responses API doesn't take a mask parameter |
-| Preserving a face / logo / label type across an edit | API only — `--input-fidelity high` |
+| Preserving a face / logo / label type across an edit | API; use Sunburst and keep the critical reference first |
 | A guaranteed output size when editing | API only — codex ignores `--size` for `edit`/`compose` and returns the input's aspect |
 | Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |
 | Transparent background / real alpha channel | Both, for `generate` — API takes it as a param, codex via prompt + verification. Codex `edit`/`compose`: API only |
 | A specific output file format (png / jpeg / webp) | API only via `--output-format` — both codex transports always return PNG |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
+| Maximum quality / edit precision | API with `OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst` |
 | Largest sizes (4K) at high quality | API; on codex, `--size` is honoured for `generate` only and its reasoning loop slows on large outputs |
 
 ## Persona note

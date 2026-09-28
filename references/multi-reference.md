@@ -1,20 +1,19 @@
 # Multi-reference composition
 
-The killer feature of the `/images/edits` endpoint: pass up to 16 reference images and the model blends them into one editorial composition with consistent lighting, shadows, and color grading. This is what `pixeltamer compose` does. Codex's OAuth transport handles compose too, but without `--input-fidelity` — for faces, logos, or fine texture, use the API backend.
+The killer feature of the `/images/edits` endpoint: pass up to 16 reference images and the model blends them into one editorial composition with consistent lighting, shadows, and color grading. This is what `pixeltamer compose` does. Codex's OAuth transport handles compose too, but the API backend gives explicit model choice.
 
 Single product + single lifestyle scene + brand asset → one editorial composite in 60–120 seconds. No Photoshop step, no relighting work, no shadow matching.
 
 ## Two things that decide whether the references survive
 
-**1. `--input-fidelity high`.** Default is `low`, which lets the model reinterpret your references — fine for mood and palette, wrong for a product you're selling or a face someone will recognise. `high` preserves distinctive features: faces, logos, label typography, material texture.
+**1. Model choice.** GPT Image 2.5 improves subject preservation. Start with Flare; switch to Sunburst when identity, product geometry, typography, or edit precision still drifts. `--input-fidelity high` remains available on direct API edits where the selected model or host supports that control.
 
 ```bash
-pixeltamer compose -i product.png -i scene.png -p "..." --input-fidelity high -o out.png
+pixeltamer compose -i product.png -i scene.png -p "..." -o out.png
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst pixeltamer compose -i product.png -i scene.png -p "..." -o out.png
 ```
 
-Use `high` for: product placement, anything with a face, brand marks, packaging with readable type, wardrobe on a real model. Stay on `low` for: mood boards, style transfer, anything where the reference is inspiration rather than subject.
-
-**2. Reference order — the first slot is special.** All inputs are preserved at high fidelity, but **only the first image gets the extra richness in texture**. So the reference carrying the detail you can least afford to lose goes first.
+**2. Reference order — the first slot is special.** Put the reference carrying the detail you can least afford to lose first. Faces, logos, and product texture benefit most from that slot even when every input uses high-fidelity processing.
 
 | Composite | First `-i` should be |
 |---|---|
@@ -24,7 +23,7 @@ Use `high` for: product placement, anything with a face, brand marks, packaging 
 | Logo onto packaging | the logo |
 | Style transfer | the subject, not the style board |
 
-Working with multiple faces from separate photos? Combine them into one composite image first and pass that as reference 1, rather than as separate inputs — only one of them would get the richer treatment otherwise.
+Working with multiple faces from separate photos? Combine them into one composite image first and pass that as reference 1. This gives the model one unambiguous identity anchor instead of several competing references.
 
 This is a change in how you order references, not just what you label them. The labeling patterns below still apply on top.
 
