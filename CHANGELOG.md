@@ -4,6 +4,10 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [0.6.0] - 2026-09-28
+
 ### Added
 
 - **`--json` structured output** on `generate`, `edit` and `compose`, for the agents that drive this thing far more than people do. One guarantee holds the design up: in JSON mode stdout carries **exactly one JSON object on every path out of the program** — success, bad flag, missing auth, upstream failure, or an unhandled exception in our own code. A mode that emits prose on one unlucky branch is worse than none, because callers write `JSON.parse(stdout)` and it works until it doesn't. Human output stays on stderr, as it already did.
@@ -271,7 +275,8 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 - SKILL.md for full-context environments and SKILL-OC.md token-optimized variant for OpenClaw.
 - Multi-image batch verifier with state-machine `prompts.md` format and a 29-test node:test suite.
 
-[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.5.6...v0.6.0
 [0.3.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/releases/tag/v0.1.0
