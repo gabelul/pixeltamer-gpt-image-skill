@@ -572,18 +572,21 @@ run_codex() {
 
   if (( missing == 1 )); then
     # Last-ditch recovery: codex sometimes saves to ~/.codex/generated_images/
-    # without copying. Grab the most recent ig_*.png(s) — but ONLY ones created
+    # without copying. Grab the most recent PNG(s) — but ONLY ones created
     # after this run started (-newer "$start_marker"), so a concurrent run can't
     # have its image stolen. The old "newest overall" scan was globally racy.
+    # Filename shapes have churned across codex builds (ig_<ts>.png once,
+    # exec-<uuid>.png inside session subdirs now), so match any .png and rely
+    # on the timestamp guard for correctness. codex UUID names have no
+    # newlines, so a newline-delimited list is safe here.
     local cache="$HOME/.codex/generated_images"
     if [[ -d "$cache" ]]; then
       local found latest
       # Collect candidates first and guard the empty case explicitly: GNU xargs
       # runs `ls -t` with NO args (listing the cwd) on empty input, which could
       # then publish an arbitrary file. BSD xargs doesn't, but we don't rely on
-      # the difference. codex names cache files ig_<ts>.png (no newlines), so a
-      # newline-delimited list is safe here.
-      found="$(find "$cache" -type f -name 'ig_*.png' -newer "$start_marker" 2>/dev/null)"
+      # the difference.
+      found="$(find "$cache" -type f -name '*.png' -newer "$start_marker" 2>/dev/null)"
       latest=""
       if [[ -n "$found" ]]; then
         latest="$(printf '%s\n' "$found" | tr '\n' '\0' | xargs -0 ls -t 2>/dev/null | head -n "$count")"
