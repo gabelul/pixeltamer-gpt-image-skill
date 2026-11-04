@@ -6,6 +6,20 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 _No unreleased changes._
 
+## [0.7.1] - 2026-11-04
+
+### Fixed
+
+- **Recovery scan matched a filename codex no longer produces.** The
+  `generated_images` sweep filtered on `ig_*.png` — current codex builds save
+  as `exec-<uuid>.png` inside session subdirectories, so a shellless run that
+  generated perfectly still failed to publish. First live container test of
+  0.7.0 caught it: the child burned 4,532 tokens and reported its artifact
+  path; the parent then declared "expected PNG(s) not found". The sweep now
+  takes any `.png` newer than this run's start marker — the timestamp guard
+  carries the race safety, so filename churn across codex builds stops
+  mattering. Second live test published on the first try.
+
 ## [0.7.0] - 2026-11-04
 
 ### Added
