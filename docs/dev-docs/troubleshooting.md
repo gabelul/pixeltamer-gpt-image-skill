@@ -291,3 +291,45 @@ definition and watching the suite go red.
 necessarily the one that breaks. And a test harness that supplies what the code
 is missing is not a test — the 500-vs-400 retry test earlier the same day failed
 the same way, by making the failure unreachable.
+
+---
+
+## Nested codex in a container: bwrap can't create a namespace, so make the child shell-less
+
+**Symptom:** Pixeltamer's codex backend works on a laptop, then inside a
+container (OpenMausBot's mausbot image, CI runners, anything dockerized) the
+wrapper's child `codex` dies before touching the network:
+`Linux sandbox initialization failed ... bwrap: No permissions to create a new
+namespace`. Auth is fine; the error looks fatal but is purely about the shell
+sandbox the child tries to build.
+
+**Root cause:** `codex exec` initialises a bubblewrap sandbox for its shell
+tools. Containers already run under a seccomp profile that blocks
+`unshare(CLONE_NEWUSER)`, so the namespace creation fails and the child exits
+before it generates anything. Image generation never needed that shell — the
+failure is in scaffolding the child never uses.
+
+**Fix:** spawn an image-only child with the shell tools switched off, and let
+the *parent* do all file reading and prompt assembly:
+
+```sh
+codex exec --skip-git-repo-check --ignore-user-config -s read-only \
+  -c features.shell_tool=false -c features.unified_exec=false \
+  -c features.image_generation=true -c 'model_reasoning_effort="low"' \
+  --json '<full prompt>. Use only built-in image_gen. Report the saved artifact path.'
+```
+
+No shell tool means no sandbox to build, so bwrap never runs. `-s read-only` is
+kept as belt-and-suspenders, `--ignore-user-config` scopes to this one child.
+Artifacts land under `/generated_images/` in the child's home; the parent
+copies the file and verifies the PNG magic bytes before claiming success.
+
+The OpenMausBot deployment keeps a hardened launcher for this:
+`mausbot-ops/pixeltamer/generate-codex-portrait.mjs` — four-minute kill timer,
+`.status.json`/`.stderr`/`.jsonl` artifacts, exit-code check, and it refuses to
+report success unless the reported path exists, exceeds 1 KB, and starts with
+the PNG signature.
+
+**Lesson:** a sandbox failure at startup says nothing about the service being
+reached. Cut the capability the child doesn't need instead of loosening the
+container — disabling the shell is a smaller change than making unshare legal.

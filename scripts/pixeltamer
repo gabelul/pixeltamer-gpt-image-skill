@@ -409,6 +409,7 @@ $prog — image generation for Claude Code, Codex CLI, OpenCode, and friends.
 
 usage:
   $prog [--backend api|codex|auto] <subcommand> [args...]
+  # --backend is accepted before or after the subcommand
 
 subcommands:
   generate (default)   text -> image
@@ -434,15 +435,26 @@ EOF
 
 # --- main -------------------------------------------------------------------
 
-# Pull --backend off the front before subcommand dispatch.
+# Pull --backend off wherever it appears before dispatch. The helpers never
+# accept the flag themselves — leaving it in the tail used to make them
+# reject it, which only worked when the flag happened to sit in front of the
+# subcommand. Placement no longer matters.
 BACKEND_OVERRIDE=""
-if [[ "${1:-}" == "--backend" ]]; then
-  BACKEND_OVERRIDE="${2:-}"
-  shift 2
-elif [[ "${1:-}" == --backend=* ]]; then
-  BACKEND_OVERRIDE="${1#--backend=}"
-  shift
-fi
+args=()
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == "--backend" ]]; then
+    BACKEND_OVERRIDE="${2:-}"
+    shift 2
+  elif [[ "$1" == --backend=* ]]; then
+    BACKEND_OVERRIDE="${1#--backend=}"
+    shift
+  else
+    args+=("$1")
+    shift
+  fi
+done
+# The ${args[@]+...} guard keeps an empty array legal under bash 3.2 with `set -u`.
+if [[ ${#args[@]} -gt 0 ]]; then set -- ${args[@]+"${args[@]}"}; else set --; fi
 
 _load_config
 
