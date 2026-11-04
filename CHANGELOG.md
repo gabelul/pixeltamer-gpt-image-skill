@@ -6,6 +6,34 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 _No unreleased changes._
 
+## [0.6.1] - 2026-11-04
+
+### Fixed
+
+- **`--backend` works wherever you put it.** The dispatcher only stripped the flag
+  when it sat directly in front of the subcommand — `pixeltamer --backend codex
+  generate ...` was the one blessed order. Written the natural way, `pixeltamer
+  generate --backend codex ...`, the flag fell through into the helper's
+  argument list, and the helper rejected it as unknown. The script doesn't
+  forward backend selection to helpers at all, so there was never a reason for
+  the placement rule: the dispatcher now scans every pre-dispatch argument and
+  pulls `--backend <value>` or `--backend=<value>` out wherever it finds them.
+  `PIXELTAMER_BACKEND` still works and still wins nothing — the explicit flag
+  overrides the env var, same priority as before. Found the hard way inside an
+  OpenMausBot workspace, where a bot hit the wrong order and shipped a
+  workaround note instead of a bug report.
+
+### Added
+
+- **Troubleshooting: nested codex in containers.** New entry documenting the
+  `bwrap: No permissions to create a new namespace` failure that hits the codex
+  backend inside dockerized environments — the child `codex exec` can't build
+  its bubblewrap sandbox because the container's seccomp profile blocks
+  `unshare`, and the image-generation path never needed that sandbox. The fix
+  pattern (shell-less, read-only, image-only child; parent owns file reads and
+  artifact verification) is written up with the exact command line that
+  survived production.
+
 ## [0.6.0] - 2026-09-28
 
 ### Added
