@@ -78,6 +78,9 @@ optional:
 
 env:
   CODEX_BIN               override the codex executable (default: codex)
+  PIXELTAMER_CODEX_SHELLLESS=1
+                          shellless image-only child — required in containers
+                          where nested codex can't build its bwrap sandbox
 EOF
   exit 2
 }
@@ -471,6 +474,23 @@ Requirements:
 EOF
 }
 
+# Shellless variant for containerized runs (PIXELTAMER_CODEX_SHELLLESS=1):
+# the child has no shell and no file tools, so it cannot save to a target
+# path — image_gen drops the PNG in ~/.codex/generated_images/ and the
+# parent's recovery scan publishes it. Asking the child to save anywhere
+# would burn reasoning turns on capabilities it was never given.
+build_shellless_prompt() {
+  cat <<EOF
+Generate $count image(s) with your built-in image_gen tool.
+PROMPT: $prompt
+SIZE: $size
+QUALITY: $quality
+COUNT: $count
+You have no shell and no file tools. image_gen saves each result automatically; do not try to copy or move files.
+Print only the absolute path(s) of the saved PNG(s), one per line.
+EOF
+}
+
 # --- runner ------------------------------------------------------------------
 
 run_codex() {
@@ -498,6 +518,24 @@ run_codex() {
   for p in "${work_paths[@]}"; do rm -f "$p"; done
 
   local rc=0
+  if [[ "${PIXELTAMER_CODEX_SHELLLESS:-}" == "1" ]]; then
+    # Containerized runs: a nested codex can't build its bwrap sandbox (the
+    # container's seccomp profile blocks unshare), and image generation never
+    # needed the shell anyway. A shellless child has no sandbox to initialize,
+    # so bwrap never runs. The PNG lands in ~/.codex/generated_images/ and the
+    # recovery scan below publishes it. See docs/dev-docs/troubleshooting.md.
+    run_with_watchdog "$CODEX_TIMEOUT" \
+        "$CODEX" exec \
+            --skip-git-repo-check \
+            --ignore-user-config \
+            -s read-only \
+            -c 'features.shell_tool=false' \
+            -c 'features.unified_exec=false' \
+            -c 'features.image_generation=true' \
+            -c "model_reasoning_effort=\"${reasoning}\"" \
+            ${image_args[@]+"${image_args[@]}"} \
+        <"$promptfile" >"$log" 2>&1 || rc=$?
+  else
   run_with_watchdog "$CODEX_TIMEOUT" \
       "$CODEX" exec \
           --skip-git-repo-check \
@@ -505,6 +543,7 @@ run_codex() {
           -c "model_reasoning_effort=\"${reasoning}\"" \
           ${image_args[@]+"${image_args[@]}"} \
       <"$promptfile" >"$log" 2>&1 || rc=$?
+  fi
 
   rm -f "$promptfile"
 
@@ -612,7 +651,11 @@ run_codex() {
 # pushier prompt, and retrying would just burn another full timeout — that's
 # the "one stall becomes two" double-hang we're specifically avoiding.
 rc=0
-run_codex "$(build_clean_prompt)" || rc=$?
+if [[ "${PIXELTAMER_CODEX_SHELLLESS:-}" == "1" ]]; then
+  run_codex "$(build_shellless_prompt)" || rc=$?
+else
+  run_codex "$(build_clean_prompt)" || rc=$?
+fi
 if (( rc == 0 )); then
   used="clean"
 elif (( rc == EXIT_TIMEOUT )); then
@@ -620,7 +663,11 @@ elif (( rc == EXIT_TIMEOUT )); then
 else
   echo "$prog: clean pattern produced no image — retrying with augmented prompt..." >&2
   rc=0
-  run_codex "$(build_forced_prompt)" || rc=$?
+  if [[ "${PIXELTAMER_CODEX_SHELLLESS:-}" == "1" ]]; then
+    run_codex "$(build_shellless_prompt)" || rc=$?
+  else
+    run_codex "$(build_forced_prompt)" || rc=$?
+  fi
   if (( rc == 0 )); then
     used="forced"
   elif (( rc == EXIT_TIMEOUT )); then

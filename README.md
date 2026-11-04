@@ -86,6 +86,8 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 
 **Tuning the codex backend.** codex generations run under a timeout watchdog so a stalled `image_gen` call can't hang forever. `PIXELTAMER_CODEX_TIMEOUT` (seconds, default `360`) sets how long a single generation may run before it's killed; `PIXELTAMER_CODEX_KILL_GRACE` (default `5`) is the SIGTERM→SIGKILL gap. A timed-out generation exits `124` — distinct from `1` (ordinary failure), `2` (bad usage), and `127` (codex not installed / not logged in).
 
+**Running inside a container.** Set `PIXELTAMER_CODEX_SHELLLESS=1` when the script itself runs inside a container (CI, bot runtimes, dockerized agents). A nested `codex exec` tries to build its bubblewrap sandbox and dies — the container's seccomp profile blocks the namespace unshare it needs. The shellless mode spawns an image-only child (`features.shell_tool=false`, read-only sandbox, `image_generation` on) that skips sandbox construction entirely; the PNG lands in `~/.codex/generated_images/` and the script's recovery scan publishes it to `-o`. No other flags change.
+
 ---
 
 ## How it works

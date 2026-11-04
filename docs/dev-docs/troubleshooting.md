@@ -310,7 +310,14 @@ before it generates anything. Image generation never needed that shell — the
 failure is in scaffolding the child never uses.
 
 **Fix:** spawn an image-only child with the shell tools switched off, and let
-the *parent* do all file reading and prompt assembly:
+the *parent* do all file reading and prompt assembly. As of 0.7.0 the script
+does this natively — set `PIXELTAMER_CODEX_SHELLLESS=1` and it spawns the
+shellless child (`--ignore-user-config -s read-only`, `features.shell_tool=false`,
+`features.unified_exec=false`, `features.image_generation=true`), switches to a
+save-less prompt (the child can't copy files, so it only reports the artifact
+path), and lets the existing `generated_images` recovery scan publish the file
+after verifying it exists. The hand-rolled equivalent, for anyone on an older
+version:
 
 ```sh
 codex exec --skip-git-repo-check --ignore-user-config -s read-only \
@@ -319,16 +326,13 @@ codex exec --skip-git-repo-check --ignore-user-config -s read-only \
   --json '<full prompt>. Use only built-in image_gen. Report the saved artifact path.'
 ```
 
-No shell tool means no sandbox to build, so bwrap never runs. `-s read-only` is
-kept as belt-and-suspenders, `--ignore-user-config` scopes to this one child.
-Artifacts land under `/generated_images/` in the child's home; the parent
-copies the file and verifies the PNG magic bytes before claiming success.
+No shell tool means no sandbox to build, so bwrap never runs. Artifacts land
+under `/generated_images/` in the child's home; the parent copies the file and
+verifies the PNG magic bytes before claiming success.
 
-The OpenMausBot deployment keeps a hardened launcher for this:
-`mausbot-ops/pixeltamer/generate-codex-portrait.mjs` — four-minute kill timer,
-`.status.json`/`.stderr`/`.jsonl` artifacts, exit-code check, and it refuses to
-report success unless the reported path exists, exceeds 1 KB, and starts with
-the PNG signature.
+The OpenMausBot deployment ships the full skill into the bot container with
+`PIXELTAMER_CODEX_SHELLLESS=1` set in compose — the dispatcher's own codex
+transport runs the shellless path directly, no launcher needed.
 
 **Lesson:** a sandbox failure at startup says nothing about the service being
 reached. Cut the capability the child doesn't need instead of loosening the
