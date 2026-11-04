@@ -6,6 +6,28 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 _No unreleased changes._
 
+## [0.7.0] - 2026-11-04
+
+### Added
+
+- **`PIXELTAMER_CODEX_SHELLLESS=1` — the codex backend now runs inside
+  containers.** A nested `codex exec` initialises a bubblewrap sandbox for its
+  shell tools, and dockerized environments (CI, bot runtimes like OpenMausBot)
+  block the `unshare` that sandbox needs — so the child died with `bwrap: No
+  permissions to create a new namespace` before ever touching the image tool.
+  The failure was pure scaffolding: image generation never needed the shell.
+
+  The new mode spawns an image-only child — `features.shell_tool=false`,
+  `features.unified_exec=false`, `features.image_generation=true`, read-only
+  sandbox, `--ignore-user-config` — so there is no sandbox to build and bwrap
+  never runs. The prompt changes with it: a shellless child can't save to a
+  target path, so it's asked only to generate and report the artifact path,
+  and the script's existing `generated_images` recovery scan (newer-than-start,
+  race-guarded since 0.5.x) publishes the file. Verified end-to-end in an
+  OpenMausBot container after a bot independently discovered the pattern by
+  hand-rolling its own launcher the day before — the fix is that launcher's
+  logic, folded into the transport where it belongs.
+
 ## [0.6.1] - 2026-11-04
 
 ### Fixed
