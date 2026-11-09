@@ -9,7 +9,7 @@
 #      produce an image (some codex versions need the explicit nudge)
 #
 # Usage:
-#   pixeltamer_codex.sh -p "<prompt>" -o <output.png> [--size WxH] [--quality low|medium|high|auto] [-n N]
+#   pixeltamer_codex.sh -p "<prompt>" -o <output.png|output.gif> [--size WxH] [--quality low|medium|high|auto] [-n N]
 #
 # Exit codes: 0 success, 2 bad usage, 127 codex not installed/wedged,
 #             124 codex timed out, 1 generation failed.
@@ -60,16 +60,21 @@ _bail() {
 
 usage() {
   cat >&2 <<EOF
-usage: $prog -p "<prompt>" -o <output.png> [--size WxH] [--quality Q] [-n N] [-i FILE]... [--reasoning E] [--debug]
+usage: $prog -p "<prompt>" -o <output.png|output.gif> [--size WxH] [--quality Q] [-n N] [-i FILE]... [--reasoning E] [--debug]
 
 required:
   -p, --prompt PROMPT     image description (quote it)
-  -o, --out PATH          where to save the PNG; auto-suffixed -01, -02 when n>1
+  -o, --out PATH          where to save the output (PNG or animated GIF);
+                          auto-suffixed -01, -02 when n>1
 
 optional:
   --size WxH              e.g. 1024x1024, 1536x1024, 1024x1536, auto (default: auto)
   --quality Q             low | medium | high | auto (default: auto)
   -n, --count N           number of images, 1-10 (default: 1)
+  --frames N              animated GIF frame count, 2-16 (GIF output only;
+                          best-effort — codex assembles the animation itself)
+  --frame-ms MS           per-frame duration in ms, 20-2000 (GIF output only;
+                          best-effort — verified after the run, drift is reported)
   -i, --image FILE        reference image to attach for character/style consistency.
                           Pass once per file; codex's image_gen will use them as
                           visual context. Repeatable (use -i twice for two images).
@@ -92,6 +97,8 @@ out=""
 size="auto"
 quality="auto"
 count=1
+frames=""
+frame_ms=""
 reasoning="medium"
 debug=0
 background=""
@@ -105,6 +112,8 @@ while [[ $# -gt 0 ]]; do
     --size)         size="${2:-}"; shift 2 ;;
     --quality)      quality="${2:-}"; shift 2 ;;
     -n|--count)     count="${2:-}"; shift 2 ;;
+    --frames)       frames="${2:-}"; shift 2 ;;
+    --frame-ms)     frame_ms="${2:-}"; shift 2 ;;
     -i|--image)     images+=("${2:-}"); shift 2 ;;
     --reasoning)    reasoning="${2:-}"; shift 2 ;;
     --background)   background="${2:-}"; shift 2 ;;
@@ -125,6 +134,25 @@ esac
 [[ -z "$out" ]] && { (( json_mode == 1 )) && _bail invalid_argument no 2 "--out required"; echo "$prog: --out required" >&2; usage; }
 [[ "$count" =~ ^[0-9]+$ ]] || { echo "$prog: -n must be a positive integer" >&2; usage; }
 (( count >= 1 && count <= 10 )) || { echo "$prog: -n must be 1-10" >&2; usage; }
+[[ -z "$frames" || "$frames" =~ ^[0-9]+$ ]] || { echo "$prog: --frames must be an integer" >&2; usage; }
+if [[ -n "$frames" ]]; then (( frames >= 2 && frames <= 16 )) || { echo "$prog: --frames must be 2-16" >&2; usage; }; fi
+[[ -z "$frame_ms" || "$frame_ms" =~ ^[0-9]+$ ]] || { echo "$prog: --frame-ms must be an integer" >&2; usage; }
+if [[ -n "$frame_ms" ]]; then (( frame_ms >= 20 && frame_ms <= 2000 )) || { echo "$prog: --frame-ms must be 20-2000" >&2; usage; }; fi
+
+# Pre-flight contract checks. Both fire BEFORE codex is invoked: these combos
+# cannot be honoured on this backend, and a hard usage error beats burning a
+# paid generation to discover it.
+out_ext_early="${out##*.}"
+if [[ -n "$frames" || -n "$frame_ms" ]]; then
+  if [[ "$out_ext_early" != "gif" ]]; then
+    (( json_mode == 1 )) && _bail invalid_argument no 2 "--frames/--frame-ms require a .gif output path"
+    echo "$prog: --frames/--frame-ms require a .gif output path (-o *.gif)" >&2; usage
+  fi
+fi
+if [[ "$out_ext_early" == "gif" && "$background" == "transparent" ]]; then
+  (( json_mode == 1 )) && _bail invalid_argument no 2 "--background transparent is not verified for GIF output on codex; use --backend api"
+  echo "$prog: --background transparent is not verified for GIF output on the codex backend: GIF transparency is binary palette transparency, and the transparency clause would request PNG alpha that GIF cannot carry. Use --backend api instead." >&2; usage
+fi
 
 # Validate every reference image exists and resolve to absolute paths so codex
 # can find them regardless of where it cd's into. Bail fast on a missing file
@@ -302,6 +330,19 @@ out_base="$(basename "$out")"
 out_stem="${out_base%.*}"
 out_ext="${out_base##*.}"
 [[ "$out_ext" == "$out_base" ]] && out_ext="png"
+# GIF targets get a prompt-level format clause and a publish-time magic check;
+# see the animated GIF section below.
+is_gif=0
+[[ "$out_ext" == "gif" ]] && is_gif=1
+
+# Shellless children have no shell, so the sprite-sheet + ImageMagick assembly
+# the GIF route relies on cannot happen — the cache would only ever hold a
+# still PNG and the publish gate would (correctly) refuse it. Reject up front
+# instead of burning a codex run on output we would have to throw away.
+if (( is_gif == 1 )) && [[ "${PIXELTAMER_CODEX_SHELLLESS:-}" == "1" ]]; then
+  echo "$prog: GIF output is not available in shellless mode: the shellless child cannot run ImageMagick to assemble frames. Drop PIXELTAMER_CODEX_SHELLLESS or use a .png target." >&2
+  exit 2
+fi
 
 # final_paths: where the caller actually wants the PNG(s).
 # work_paths:  per-process temp siblings IN the same directory. codex writes
@@ -366,6 +407,29 @@ $TRANSPARENCY_CLAUSE"
 
 _apply_background_to_prompt
 
+# --- animated GIF -------------------------------------------------------------
+
+# What actually happens here (observed on codex-cli 0.161, 2026-11-06): codex
+# has no GIF parameters to set, and its image_gen tool returns a STILL. Given
+# a clause like the one below, codex's reasoning loop generates a multi-frame
+# sprite sheet as a still PNG, then assembles the animated GIF itself with
+# local tooling (observed: ImageMagick crop/resize/-set delay/-loop 0) before
+# saving it to the requested path. So this works, but it depends on codex
+# having the technique and the tools available on this machine — and the
+# publish-time structural gate below exists precisely because a still PNG
+# saved at the .gif path is a real failure mode.
+GIF_CLAUSE=""
+if (( is_gif == 1 )); then
+  GIF_CLAUSE="FORMAT REQUIREMENT: the output must be an ANIMATED GIF with multiple frames, not a single still image. The motion must loop smoothly — the last frame flows back into the first with no visible jump."
+  if [[ -n "$frames" ]]; then GIF_CLAUSE+=" Use exactly $frames frames."; fi
+  if [[ -n "$frame_ms" ]]; then GIF_CLAUSE+=" Show each frame for ${frame_ms} milliseconds."; fi
+fi
+if [[ -n "$GIF_CLAUSE" ]]; then
+  prompt="$prompt
+
+$GIF_CLAUSE"
+fi
+
 # Post-generation gate. Prompt-driven transparency is a request, not a contract,
 # so the result gets measured rather than assumed.
 #
@@ -383,6 +447,10 @@ _alpha_gate() {
   [[ "$background" == "transparent" ]] || return 0
   local f="$1"
   [[ -f "$f" ]] || return 0
+  if [[ "$f" == *.gif ]]; then
+    echo "$prog: note — automatic alpha measurement is PNG-only; verify the GIF's transparency manually before compositing." >&2
+    return 0
+  fi
   _have node || return 0   # gate needs node; silence beats a false failure
 
   local pct
@@ -468,10 +536,24 @@ COUNT: $count
 
 Requirements:
 - You MUST call the image_generation tool. This is non-negotiable.
-- Do NOT write a Python script, shell out to curl, or fabricate a PNG any other way.
+- Do NOT write a Python script, shell out to curl, or fabricate the image file any other way.
 - ${target_block}
-- Reply with only the absolute path(s) of the saved PNG(s), one per line. Nothing else.
+- Reply with only the absolute path(s) of the saved image file(s), one per line. Nothing else.
 EOF
+}
+
+# True when the first bytes of file $1 match the requested output format.
+# Used by the cache-recovery scan so a PNG sprite sheet can never land in a
+# .gif slot (or vice versa).
+_cache_file_matches_format() {
+  local f="$1" sig
+  if (( is_gif == 1 )); then
+    sig="$(head -c 6 "$f" 2>/dev/null | LC_ALL=C tr -d '\0')"
+    [[ "$sig" == "GIF87a" || "$sig" == "GIF89a" ]]
+  else
+    sig="$(head -c 4 "$f" 2>/dev/null | LC_ALL=C tr -d '\0')"
+    [[ "$sig" == $'\x89PNG' ]]
+  fi
 }
 
 # Shellless variant for containerized runs (PIXELTAMER_CODEX_SHELLLESS=1):
@@ -490,6 +572,7 @@ You have no shell and no file tools. image_gen saves each result automatically; 
 Print only the absolute path(s) of the saved PNG(s), one per line.
 EOF
 }
+
 
 # --- runner ------------------------------------------------------------------
 
@@ -564,7 +647,7 @@ run_codex() {
     return 1
   fi
 
-  # Did codex actually drop the requested PNG(s) at the work paths?
+  # Did codex actually drop the requested image file(s) at the work paths?
   local missing=0
   for p in "${work_paths[@]}"; do
     [[ -f "$p" ]] || missing=1
@@ -572,32 +655,56 @@ run_codex() {
 
   if (( missing == 1 )); then
     # Last-ditch recovery: codex sometimes saves to ~/.codex/generated_images/
-    # without copying. Grab the most recent PNG(s) — but ONLY ones created
-    # after this run started (-newer "$start_marker"), so a concurrent run can't
-    # have its image stolen. The old "newest overall" scan was globally racy.
-    # Filename shapes have churned across codex builds (ig_<ts>.png once,
-    # exec-<uuid>.png inside session subdirs now), so match any .png and rely
-    # on the timestamp guard for correctness. codex UUID names have no
-    # newlines, so a newline-delimited list is safe here.
+    # without copying to the requested paths. Recovery CANNOT attribute cache
+    # files to runs: the -newer start-marker filter excludes stale artifacts
+    # but a concurrent run finishing after our start is indistinguishable, so
+    # a scanned file may belong to someone else's prompt. That's why the scan
+    # is opt-in (PIXELTAMER_CODEX_RECOVER=1) by default — shellless mode is
+    # the exception: the child has no file tools, so recovery is the ONLY
+    # way anything gets published, and refusing it would strand every
+    # containerized run.
+    # When enabled, the byte check below plus the publish gate still keep a
+    # wrong-format file from ever landing.
+    #
+    # Cache layout: codex-cli 0.161 nests artifacts as exec-<uuid>.<ext> inside
+    # UUID directories; older versions wrote flat ig_<ts>.png files — filename
+    # shapes churn across builds, so the scan matches any file with the
+    # requested extension and relies on the timestamp guard for correctness.
     local cache="$HOME/.codex/generated_images"
-    if [[ -d "$cache" ]]; then
+    local recover_wanted="${PIXELTAMER_CODEX_RECOVER:-0}"
+    [[ "${PIXELTAMER_CODEX_SHELLLESS:-}" == "1" ]] && recover_wanted=1
+    if [[ -d "$cache" && "$recover_wanted" == "1" ]]; then
       local found latest
       # Collect candidates first and guard the empty case explicitly: GNU xargs
       # runs `ls -t` with NO args (listing the cwd) on empty input, which could
       # then publish an arbitrary file. BSD xargs doesn't, but we don't rely on
-      # the difference.
-      found="$(find "$cache" -type f -name '*.png' -newer "$start_marker" 2>/dev/null)"
+      # the difference. Cache filenames churn across codex builds (ig_<ts>.png
+      # once, exec-<uuid>.<ext> now); only the extension matters, so match any
+      # file with the requested one. No newlines in codex UUID names, so a
+      # newline-delimited list is safe here.
+      local ext_glob='*.png'
+      (( is_gif == 1 )) && ext_glob='*.gif'
+      found="$(find "$cache" -type f -name "$ext_glob" -newer "$start_marker" 2>/dev/null)"
       latest=""
       if [[ -n "$found" ]]; then
-        latest="$(printf '%s\n' "$found" | tr '\n' '\0' | xargs -0 ls -t 2>/dev/null | head -n "$count")"
+        latest="$(printf '%s\n' "$found" | tr '\n' '\0' | xargs -0 ls -t 2>/dev/null | head -n 20)"
       fi
       if [[ -n "$latest" ]]; then
-        local i=0
-        while IFS= read -r src; do
-          [[ -n "$src" ]] || continue
-          cp "$src" "${work_paths[$i]}"
-          i=$(( i + 1 ))
-        done <<< "$latest"
+        # Fill ONLY the missing slots, newest candidate first. An existing work
+        # file is codex's own genuine output and must never be clobbered by a
+        # cache artifact; and each candidate's bytes are checked against the
+        # requested format before it may land in a slot.
+        local i src
+        for i in "${!work_paths[@]}"; do
+          [[ -f "${work_paths[$i]}" ]] && continue
+          while IFS= read -r src; do
+            [[ -n "$src" ]] || continue
+            if _cache_file_matches_format "$src"; then
+              cp "$src" "${work_paths[$i]}"
+              break
+            fi
+          done <<< "$latest"
+        done
         missing=0
         for p in "${work_paths[@]}"; do
           [[ -f "$p" ]] || missing=1
@@ -609,7 +716,7 @@ run_codex() {
   rm -f "$start_marker"
 
   if (( missing == 1 )); then
-    echo "$prog: codex finished but expected PNG(s) not found." >&2
+    echo "$prog: codex finished but expected image file(s) not found." >&2
     tail -n 30 "$log" >&2
     echo "(full log: $log)" >&2
     rm -f "${work_paths[@]}"
@@ -626,6 +733,57 @@ run_codex() {
   for p in "${work_paths[@]}"; do
     [[ -f "$p" ]] || { echo "$prog: internal: work file vanished before publish: $p" >&2; rm -f "${work_paths[@]}"; return 1; }
   done
+  # Format sanity gate: a .gif target must be a complete, multi-frame GIF.
+  # codex's GIF route is agent-assembled (sprite sheet + local ImageMagick),
+  # so still PNGs saved at the .gif path, single-frame GIFs and truncated
+  # files are all real failure modes — publishing any of them would poison
+  # downstream consumers. node + lib/gif-inspect.mjs is REQUIRED here: a
+  # 6-byte signature can't distinguish a still from an animation, so without
+  # node the gate fails loudly instead of claiming a structure-verified win.
+  if (( is_gif == 1 )); then
+    for p in "${work_paths[@]}"; do
+      if _have node; then
+        verdict="$(node -e "
+import('$script_dir/lib/gif-inspect.mjs').then(m => {
+  const r = m.inspectGifFile(process.argv[1]);
+  if (r === null) { console.log('UNREADABLE'); return; }
+  if (!r.ok) { console.log('BAD ' + r.reason + ' (frames seen: ' + r.frames + ')'); return; }
+  if (r.frames < 2) { console.log('BAD static — ' + r.frames + ' frame, not animated'); return; }
+  const notes = [];
+  const wantFrames = parseInt(process.argv[2], 10);
+  const wantMs = parseInt(process.argv[3], 10);
+  if (Number.isFinite(wantFrames) && r.frames !== wantFrames) {
+    notes.push('requested ' + wantFrames + ' frames, got ' + r.frames);
+  }
+  if (Number.isFinite(wantMs) && !(r.delaysMs.length && r.delaysMs.every((x) => x === wantMs))) {
+    notes.push('delays differ from requested ' + wantMs + 'ms per frame');
+  }
+  console.log(notes.length ? 'OK-NOTE ' + notes.join('; ') : 'OK');
+}).catch(() => console.log('UNREADABLE'));
+" "$p" "$frames" "$frame_ms" 2>/dev/null)"
+        case "$verdict" in
+          OK)
+            ;;
+          OK-NOTE\ *)
+            echo "$prog: note — ${verdict#OK-NOTE } ($p)." >&2
+            ;;
+          UNREADABLE|"")
+            echo "$prog: note — could not structurally inspect $p; verify it by hand." >&2
+            ;;
+          *)
+            echo "$prog: FAILED — $p is not a usable animated GIF ($verdict)." >&2
+            rm -f "${work_paths[@]}"
+            return 1
+            ;;
+        esac
+      else
+        echo "$prog: FAILED — $p needs structural GIF verification but node is not installed." >&2
+        echo "  Install node (https://nodejs.org) or verify the GIF by hand, then move it into place yourself." >&2
+        ls -la "$p" >&2
+        return 1
+      fi
+    done
+  fi
   for i in "${!work_paths[@]}"; do
     # Reject a directory at the target — `mv file dir/` would move INTO it and we
     # would then print the dir path as if it were the PNG.
