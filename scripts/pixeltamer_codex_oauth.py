@@ -48,6 +48,7 @@ import argparse
 import base64
 import json
 import mimetypes
+import os
 import random
 import re
 import sys
@@ -70,8 +71,45 @@ REFRESH_ENDPOINT = "https://auth.openai.com/oauth/token"
 REFRESH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
 # The chat model that wraps the image_generation tool. Different from the
-# service-selected GPT Image model — gpt-5.4 orchestrates the tool call.
-RESPONSES_MODEL = "gpt-5.4"
+# service-selected GPT Image model — this one orchestrates the tool call.
+#
+# Model choice. The historical bug this block replaces: a hardcoded
+# "gpt-5.4" that ChatGPT-account endpoints reject (model_not_found) while
+# codex CLI ran the same account fine — a stale orchestrator id here is a
+# guaranteed 400.
+#
+# Probe log (2026-11-06, two passes, text completions only unless noted):
+# ACCEPTED on this account (stream:true required): gpt-6.1-terra (also
+# verified driving a real image_generation edit with alpha output),
+# gpt-5.6-luna, gpt-5.6-terra, gpt-6-luna, gpt-6-astra. NOT supported:
+# gpt-6.1-luna, gpt-6-terra, everything 5.5/5.4, all -mini and -xhigh
+# variants, bare "luna"/"terra". This is what THIS account accepted that
+# day — not a pricing table; relative cost is unmeasured. The default is
+# the user's pick (terra family), deliberately NOT the config.toml
+# flagship (gpt-6-astra): the orchestrator request sets reasoning to null
+# and emits one image_generation tool call, so it's a token trickle either
+# way. NOTE: this governs only the OAuth edit/compose transport; the
+# `pixeltamer_codex.sh` generation wrapper shells out to `codex exec`,
+# which uses the account's configured model and has no model flag here.
+# Override with PIXELTAMER_RESPONSES_MODEL.
+DEFAULT_RESPONSES_MODEL = "gpt-6.1-terra"
+
+
+def resolve_responses_model() -> str:
+    """Pick the orchestrator chat model for the Responses transport.
+
+    Resolution: PIXELTAMER_RESPONSES_MODEL env > DEFAULT_RESPONSES_MODEL
+    (user-selected terra model, verified accepted AND verified driving a
+    real image_generation edit on this account).
+    Deliberately does NOT read ~/.codex/config.toml — that holds the
+    account's flagship (gpt-6-astra) and the orchestrator doesn't need it.
+
+    @returns model id string
+    """
+    override = os.environ.get("PIXELTAMER_RESPONSES_MODEL")
+    if override:
+        return override
+    return DEFAULT_RESPONSES_MODEL
 
 # Free-form client identifier sent in the `originator` header. Helps OpenAI
 # distinguish pixeltamer traffic from raw Codex CLI traffic.
@@ -286,7 +324,7 @@ def build_request(
         tool_spec["size"] = size
 
     body = {
-        "model": RESPONSES_MODEL,
+        "model": resolve_responses_model(),
         "instructions": "",
         "input": [
             {"type": "message", "role": "user", "content": content}
@@ -600,7 +638,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     """text -> image. Reference images are optional."""
     images = [Path(p) for p in (args.image or [])]
     out = run_one(
-        prompt=args.prompt,
+        prompt=_apply_background(args, "generate"),
         images=images,
         size=args.size,
         out=Path(args.out),
@@ -608,6 +646,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         max_retries=args.max_retries,
     )
     print(out.resolve())
+    _verify_transparency(args, out)
     return 0
 
 
@@ -635,7 +674,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         sys.exit("pixeltamer_codex_oauth: edit requires exactly one -i/--image")
     _warn_size_ignored(args, "edit")
     out = run_one(
-        prompt=args.prompt,
+        prompt=_apply_background(args, "edit"),
         images=[Path(args.image[0])],
         size=args.size,
         out=Path(args.out),
@@ -643,6 +682,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
         max_retries=args.max_retries,
     )
     print(out.resolve())
+    _verify_transparency(args, out)
     return 0
 
 
@@ -652,7 +692,7 @@ def cmd_compose(args: argparse.Namespace) -> int:
         sys.exit("pixeltamer_codex_oauth: compose requires 2-16 -i/--image")
     _warn_size_ignored(args, "compose")
     out = run_one(
-        prompt=args.prompt,
+        prompt=_apply_background(args, "compose"),
         images=[Path(p) for p in args.image],
         size=args.size,
         out=Path(args.out),
@@ -660,7 +700,115 @@ def cmd_compose(args: argparse.Namespace) -> int:
         max_retries=args.max_retries,
     )
     print(out.resolve())
+    _verify_transparency(args, out)
     return 0
+
+
+# Prompt text appended when --background transparent is requested. The Responses
+# transport refuses a background PARAMETER, but prompt-driven alpha demonstrably
+# survives edits and compositions (measured 2026-11-06: a codex edit asking for
+# transparency came back with a real alpha channel — 62% transparent pixels,
+# maxAlpha 255). Wording mirrors TRANSPARENCY_CLAUSE in pixeltamer_codex.sh so
+# both codex transports ask for the same thing.
+TRANSPARENCY_CLAUSE = (
+    "Output the subject as an isolated element on a fully transparent background "
+    "with a real PNG alpha channel. No backdrop, no background colour, no "
+    "rectangle, no plinth, no surface, no cast shadow, no vignette, no "
+    "watermark. Crisp alpha edges, no halo, no matte fringe."
+)
+
+
+def _apply_background(args: argparse.Namespace, mode: str) -> str:
+    """Translate --background into what this transport can actually honour.
+
+    transparent -> the prompt clause (the transport has no background param;
+    the prompt is the only lever, and it works). opaque/auto -> refused: this
+    transport exposes no background control at all, so pretending the flag did
+    something would be a lie.
+
+    @param args - parsed args (reads .background, .prompt)
+    @param mode - subcommand name, for error messages
+    @returns the effective prompt to send
+    """
+    background = getattr(args, "background", None)
+    if background == "transparent":
+        print(
+            "pixeltamer_codex_oauth: note — the Responses transport has no "
+            "background parameter, so --background transparent appends "
+            "transparency instructions to your prompt instead. Backdrop "
+            "wording in the prompt will override it.",
+            file=sys.stderr,
+        )
+        return f"{args.prompt}\n\n{TRANSPARENCY_CLAUSE}"
+    if background in ("opaque", "auto"):
+        sys.exit(
+            f"pixeltamer_codex_oauth: --background {background} is not honoured "
+            f"on the codex backend (no such control on the Responses "
+            f"transport). Drop the flag, or use --backend api."
+        )
+    return args.prompt
+
+
+def _verify_transparency(args: argparse.Namespace, out: Path) -> None:
+    """Post-run alpha check for --background transparent.
+
+    Shells out to the shared node reader (same one the API client uses) so
+    "transparent" means the same thing on every backend. Failures follow the
+    API client's postcondition behaviour: the file stays on disk, the exit
+    code says the run failed. No node on PATH -> says so honestly and skips
+    the check rather than pretending it ran.
+
+    @param args - parsed args (reads .background)
+    @param out - the saved output path
+    """
+    if getattr(args, "background", None) != "transparent":
+        return
+    helper = Path(__file__).resolve().parent / "lib" / "image-dimensions.mjs"
+    if not helper.is_file():
+        print(
+            "pixeltamer_codex_oauth: warning — alpha verification helper not "
+            "found; transparency NOT verified.",
+            file=sys.stderr,
+        )
+        return
+    script = (
+        "import(process.argv[1]).then(m => {"
+        "const c = m.readAlphaCoverage(process.argv[2]);"
+        "process.stdout.write(JSON.stringify(c));"
+        "}).catch(() => process.stdout.write('null'));"
+    )
+    try:
+        import subprocess
+        proc = subprocess.run(
+            ["node", "-e", script, str(helper), str(out)],
+            capture_output=True, text=True, timeout=60,
+        )
+        coverage = json.loads(proc.stdout or "null")
+    except Exception:
+        coverage = None
+    if coverage is None:
+        print(
+            "pixeltamer_codex_oauth: warning — could not measure alpha "
+            "(node missing or unreadable file); transparency NOT verified.",
+            file=sys.stderr,
+        )
+        return
+    transparent_pct = coverage.get("transparentPct")
+    if transparent_pct is None:
+        print(
+            "pixeltamer_codex_oauth: warning — output has no alpha channel "
+            "data; transparency NOT verified.",
+            file=sys.stderr,
+        )
+        return
+    if transparent_pct < 1:
+        sys.exit(
+            f"pixeltamer_codex_oauth: FAILED transparency postcondition — "
+            f"output is only {transparent_pct}% transparent. The model "
+            f"probably painted a backdrop despite the instructions. File "
+            f"left at {out}; retry with stronger isolation wording or use "
+            f"--backend api."
+        )
 
 
 # --------------------------------------------------------------------------- main
@@ -695,6 +843,11 @@ def _add_common_flags(p: argparse.ArgumentParser, mode: str = "generate") -> Non
                    help="quality dial — accepted for CLI parity with API "
                         "backend, but Responses API doesn't expose this knob "
                         "directly; flag is recorded but not currently sent")
+    p.add_argument("--background", choices=("transparent", "opaque", "auto"),
+                   help="transparent appends a transparency clause to the "
+                        "prompt and alpha-verifies the result (the Responses "
+                        "transport has no background parameter); opaque/auto "
+                        "are refused")
     p.add_argument("--debug", action="store_true",
                    help="print SSE event summary on stderr")
     p.add_argument("--max-retries", type=int, default=2,
