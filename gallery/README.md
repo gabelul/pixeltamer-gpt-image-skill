@@ -537,6 +537,55 @@ Three techniques carried the set, all from OpenAI's [transparent-image-assets co
 
 ---
 
+## 10. Idle animation — loop grammar on the codex backend
+
+The same Booplex robot from 9d, set in motion: a 6-frame idle loop (bob, blink, antenna pulse) generated with `--frames 6 --frame-ms 150 --size 512x512` on the **codex backend** — subscription quota, still no `OPENAI_API_KEY` on this machine.
+
+Honest transport note first: on codex, GIF is a *request*, not a server parameter. The wrapper asks for an animated 6-frame GIF at 150 ms per frame; codex generates a sprite-sheet still with its image tool, then assembles the GIF locally with ImageMagick. On the API backend the same two flags are real server parameters (`frame_count`, `frame_duration_ms`), and `--backend codex-images` can't do GIF at all — the server answers `GIF output is not enabled for this request.` Same CLI, three different transport realities.
+
+<img src="images/gif/idle-robot.gif" alt="Six-frame idle loop of the Booplex robot mascot: bob, blink, antenna glow pulse" width="512"/>
+
+The six decoded frames on one strip, so you can check the loop grammar at a glance — framing, camera and background identical everywhere, only the idle motion moves:
+
+<img src="images/gif/strip-idle-robot.png" alt="The six frames of the idle loop side by side on a dark ground" width="720"/>
+
+`512×512 · codex · gif · fixed-camera · loop-contract`
+`gif-inspect: 6 frames · 150 ms each · loop 0 (infinite) · not truncated`
+
+Measured rather than eyeballed. RMSE between coalesced adjacent frames, with a self-compare control at exactly 0:
+
+| Pair | RMSE | What it means |
+|---|---|---|
+| f0 → f1 | 0.217 | biggest move — the bob drop, mid-blink |
+| f1 → f2 | 0.066 | drift back up |
+| f2 → f3 | 0.200 | second bob pass |
+| f3 → f4 | 0.150 | settling |
+| f4 → f5 | 0.014 | dwell at the loop top |
+| f5 → f0 | 0.104 | **the seam** — mid-range, no spike |
+
+If the frames were identical stills the numbers would all be 0, and if the loop had a hard cut the f5 → f0 seam would spike above every adjacent pair. It sits in the middle of the range instead: the "last frame flows back into the first" clause did its job.
+
+One clause moved from entry 9's brand block: the transparency contract is gone, replaced with "solid warm cream background filling the whole canvas". GIFs here are opaque — a GIF palette can't carry per-pixel alpha we can verify, and the client hard-rejects `--background transparent` + GIF up front rather than publish something it can't check.
+
+<details>
+<summary>Show prompt (verbatim)</summary>
+
+```
+A cheerful round robot mascot idling in place, three-quarter view, warm cream
+background. The robot bobs gently up and down, blinks once mid-loop, and its
+antenna tip pulses with a soft electric-blue glow. The entire scene, framing and
+camera stay identical across every frame: same locked camera, same background,
+same character proportions, only the idle motion changes. The animation is a
+perfect seamless loop; the last frame flows back into the first with no jump.
+Style: bold flat illustrated neo-brutalist, thick confident charcoal outlines of
+even weight, flat fills with no gradients, warm cream base, electric blue and
+warm yellow accents, playful and friendly but clean and geometric. Entire scene
+on a solid warm cream background filling the whole canvas, no border, no
+vignette, no text, no watermark.
+```
+
+</details>
+
 ## Contributing your own
 
 If you build something with pixeltamer that uses one of the doctrine patterns well, send a PR adding a new section here. Format: heading, image (under `gallery/images/` or `.github/assets/`), one-line goal, metadata strip, and the verbatim prompt in a `<details>` block. Match the existing entries.
