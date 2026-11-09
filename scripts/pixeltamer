@@ -119,7 +119,17 @@ _detect_backend() {
       _have_codex || _die "backend=codex but codex CLI not installed or not logged in"
       echo "codex"
       ;;
+    codex-images)
+      # Same OAuth pool as the codex backend, but the transport is the
+      # ChatGPT-backend image route inside pixeltamer_api.py — no codex exec,
+      # no orchestrator. Needs the codex login (for auth.json tokens).
+      _have_codex || _die "backend=codex-images but codex CLI not installed or not logged in (its OAuth token is the transport's auth)"
+      echo "codex-images"
+      ;;
     auto|"")
+      # codex-images is deliberately absent from auto: it is opt-in only —
+      # PNG-only and size-blind, so silently picking it would silently
+      # downgrade requests the default backends handle.
       if _have_api_key; then echo "api"
       elif _have_codex;   then echo "codex"
       else
@@ -127,7 +137,7 @@ _detect_backend() {
       fi
       ;;
     *)
-      _die "unknown backend: $choice (expected api|codex|auto)"
+      _die "unknown backend: $choice (expected api|codex|codex-images|auto)"
       ;;
   esac
 }
@@ -141,23 +151,12 @@ _detect_backend() {
 # parameter — the OAuth Responses transport accepts the field in its schema and
 # then rejects the value ("Transparent background is not supported for this
 # model") — but codex's image_gen produces real alpha when the *prompt* asks for
-# it. So `pixeltamer_codex.sh` translates the flag into prompt text and verifies
-# the result, rather than the dispatcher refusing a capability that works.
-# `--background` works on codex for `generate` (prompt-driven, via
-# pixeltamer_codex.sh). Edit and compose take the OAuth Responses transport,
-# which refuses the parameter — and whether prompt-driven alpha survives an edit
-# is untested. Refuse rather than guess.
-_die_if_background() {
-  local mode="$1"; shift
-  local arg
-  for arg in "$@"; do
-    case "$arg" in
-      --background|--background=*)
-        _die "\`--background\` on codex works for \`generate\` only; \`$mode\` goes through the Responses transport, which rejects it. Use --backend api, or generate the asset transparent and composite locally."
-        ;;
-    esac
-  done
-}
+# it. So every codex path translates the flag into prompt text and verifies the
+# result, rather than refusing a capability that works: generate via
+# pixeltamer_codex.sh; edit/compose via pixeltamer_codex_oauth.py, where
+# prompt-driven transparency was measured working on 2026-11-06 (a codex edit
+# came back with a real alpha channel — 62% transparent pixels, maxAlpha 255).
+# opaque/auto remain codex-refused: the transport has no such control.
 
 _die_if_api_only_flag() {
   local arg
@@ -184,6 +183,12 @@ cmd_generate() {
       _die_if_api_only_flag "$@"
       exec bash "$script_dir/pixeltamer_codex.sh" "$@"
       ;;
+    codex-images)
+      # The API client handles route-specific rejections itself (png-only,
+      # no size) with precise per-flag messages — so unlike the codex case,
+      # --output-format png is welcome here and wrong formats fail closed.
+      exec env PIXELTAMER_CODEX_IMAGES=1 python3 "$script_dir/pixeltamer_api.py" generate "$@"
+      ;;
   esac
 }
 
@@ -208,8 +213,14 @@ cmd_edit() {
         _die "\`edit --mask\` requires the API backend (codex Responses API doesn't take a mask parameter). Set OPENAI_API_KEY or pass --backend api."
       fi
       _die_if_api_only_flag "$@"
-      _die_if_background "edit" "$@"
+      # --background transparent now flows through: the oauth script turns it
+      # into a prompt clause and alpha-verifies the result.
       exec python3 "$script_dir/pixeltamer_codex_oauth.py" edit "$@"
+      ;;
+    codex-images)
+      # Mask/format/etc. rejections live in the API client's codex-images
+      # validator — one place owns the route's capability matrix.
+      exec env PIXELTAMER_CODEX_IMAGES=1 python3 "$script_dir/pixeltamer_api.py" edit "$@"
       ;;
   esac
 }
@@ -221,8 +232,11 @@ cmd_compose() {
     api)   exec python3 "$script_dir/pixeltamer_api.py" compose "$@" ;;
     codex)
       _die_if_api_only_flag "$@"
-      _die_if_background "compose" "$@"
+      # See cmd_edit: --background transparent is prompt-driven + verified.
       exec python3 "$script_dir/pixeltamer_codex_oauth.py" compose "$@"
+      ;;
+    codex-images)
+      exec env PIXELTAMER_CODEX_IMAGES=1 python3 "$script_dir/pixeltamer_api.py" compose "$@"
       ;;
   esac
 }
@@ -254,16 +268,18 @@ Pick how pixeltamer should generate images.
 
   [1] OpenAI API key       (fastest, full features, costs per image)
   [2] Codex CLI            (uses your ChatGPT subscription, no key required)
-  [3] Auto-detect          (try API first, fall back to codex)  [recommended]
-  [4] Cancel
+  [3] Codex subscription   (direct ChatGPT image route; PNG only, no size control)
+  [4] Auto-detect          (try API first, fall back to codex)  [recommended]
+  [5] Cancel
 EOF
-  printf "your pick [3]: " >&2
+  printf "your pick [4]: " >&2
   read -r choice
-  case "${choice:-3}" in
+  case "${choice:-4}" in
     1) _save_config api ;;
     2) _save_config codex ;;
-    3) _save_config auto ;;
-    4) _log "cancelled."; exit 0 ;;
+    3) _save_config codex-images ;;
+    4) _save_config auto ;;
+    5) _log "cancelled."; exit 0 ;;
     *) _die "invalid choice: $choice" ;;
   esac
 
@@ -271,6 +287,7 @@ EOF
   echo "Current backend status:" >&2
   if _have_api_key; then echo "  api    ✓ key present"; else echo "  api    ✗ set OPENAI_API_KEY"; fi >&2
   if _have_codex;   then echo "  codex  ✓ codex installed and logged in"; else echo "  codex  ✗ run: codex login"; fi >&2
+  if _have_codex;   then echo "  codex-images ✓ opt-in: --backend codex-images (uses codex OAuth)"; else echo "  codex-images ✗ needs codex login"; fi >&2
 }
 
 # Read the skill version straight out of package.json. sed-only so it works
@@ -374,6 +391,11 @@ cmd_doctor() {
   else
     echo "  codex  ✗ not installed (npm install -g @openai/codex)"
   fi
+  if _have_codex; then
+    echo "  codex-images ✓ opt-in: --backend codex-images (ChatGPT image route on codex OAuth; PNG only)"
+  else
+    echo "  codex-images ✗ needs codex login"
+  fi
   echo
   echo "runtime versions:"
   echo "  python3: $(python3 --version 2>&1 || echo 'missing')"
@@ -408,7 +430,7 @@ usage() {
 $prog — image generation for Claude Code, Codex CLI, OpenCode, and friends.
 
 usage:
-  $prog [--backend api|codex|auto] <subcommand> [args...]
+  $prog [--backend api|codex|codex-images|auto] <subcommand> [args...]
   # --backend is accepted before or after the subcommand
 
 subcommands:
@@ -425,9 +447,14 @@ shortcuts:
 
 env:
   OPENAI_API_KEY / OPENAI_IMAGE_API_KEY     OpenAI API auth
-  PIXELTAMER_BACKEND                         api | codex | auto
+  PIXELTAMER_BACKEND                         api | codex | codex-images | auto
   OPENAI_IMAGE_BASE_URL                      override API base URL
-  OPENAI_IMAGE_MODEL                         override API model (default gpt-image-2.5-flare)
+  OPENAI_IMAGE_MODEL                         override API model (default gpt-image-2.6-flare)
+
+backends:
+  api           full feature surface (needs OPENAI_API_KEY)
+  codex         codex CLI agent; PNG only, GIFs assembled by the agent
+  codex-images  direct ChatGPT image route on codex OAuth; PNG only, no size control
 
 run \`$prog <subcommand> --help\` for per-command flags.
 EOF
@@ -507,7 +534,7 @@ case "${1:-}" in
     shift
     cmd_doctor "$@"
     ;;
-  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--input-fidelity|--json|--format|--moderation|--user|--concurrency|--model|--mask)
+  -p|--prompt|-i|--image|-o|--out|--size|--quality|-n|--style|--background|--output-format|--output-compression|--input-fidelity|--json|--format|--moderation|--user|--concurrency|--model|--mask|--complexity|--frames|--frame-ms)
     # Bare flags = implicit `generate`.
     cmd_generate "$@"
     ;;
