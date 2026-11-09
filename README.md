@@ -257,4 +257,4 @@ Other tools for agents that care about quality:
 
 ---
 
-Built by Gabi at [Booplex](https://booplex.com/projects/pixeltamer) — because AI agents are getting scary good at generating images, and someone needs to make sure 'generated' doesn't become synonymous with 'generic'. MIT.
+Built by Gabi at [Booplex](https://booplex.com) — because AI agents are getting scary good at generating images, and someone needs to make sure 'generated' doesn't become synonymous with 'generic'. MIT.
