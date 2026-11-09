@@ -31,6 +31,10 @@ __pycache__/
 .github/assets/.omx/
 .claude/local/
 .claude-mem/
+.pi/
+
+# local smoke-test scratch
+.tmp-smoke/
 
 # Eval run artifacts — the suite is checked in, the results aren't.
 evals/results/
