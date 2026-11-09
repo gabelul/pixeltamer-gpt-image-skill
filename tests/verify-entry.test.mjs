@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync as wfs } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as jpath } from "node:path";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { verifyEntry } from '../scripts/lib/verify-entry.mjs';
@@ -253,4 +256,224 @@ test('tolerates an unmeasurable alpha channel rather than failing the entry', ()
     getAlphaCoverage: () => null,
   });
   assert.deepEqual(result, { ok: true });
+});
+
+// ---- GIF entries -----------------------------------------------------------
+
+const GIF_ENTRY = {
+  ...PNG_ENTRY,
+  index: 3,
+  path: 'assets/gifs/dance.gif',
+  format: 'GIF animated',
+  nativeSize: '512×512',
+};
+
+/** Minimal structural GIF result, shaped like inspectGifFile's return. */
+function gifResult(overrides = {}) {
+  return {
+    ok: true,
+    width: 512,
+    height: 512,
+    frames: 6,
+    delaysMs: [150, 150, 150, 150, 150, 150],
+    loopCount: 0,
+    ...overrides,
+  };
+}
+
+function gifDeps(gif = gifResult()) {
+  return {
+    fs: makeFs(),
+    getDimensions: () => { throw new Error('GIF path must not use the PNG reader'); },
+    inspectGifFile: () => gif,
+  };
+}
+
+test('passes when the GIF parses and matches (GIF animated)', () => {
+  const result = verifyEntry(GIF_ENTRY, '/proj', gifDeps());
+  assert.deepEqual(result, { ok: true, frames: 6 });
+});
+
+test('plain GIF format passes a single-frame file', () => {
+  const result = verifyEntry({ ...GIF_ENTRY, format: 'GIF' }, '/proj',
+    gifDeps(gifResult({ frames: 1 })));
+  assert.deepEqual(result, { ok: true, frames: 1 });
+});
+
+test('GIF animated rejects a single-frame file', () => {
+  const result = verifyEntry(GIF_ENTRY, '/proj', gifDeps(gifResult({ frames: 1 })));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /says animated but the GIF has 1 frame/);
+});
+
+test('GIF rejects a PNG extension', () => {
+  const result = verifyEntry({ ...GIF_ENTRY, path: 'assets/gifs/dance.png' }, '/proj', gifDeps());
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /extension .png does not match format/);
+});
+
+test('GIF rejects corrupt structure', () => {
+  const result = verifyEntry(GIF_ENTRY, '/proj',
+    gifDeps(gifResult({ ok: false, reason: 'corrupt', frames: 0 })));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /invalid GIF \(corrupt\)/);
+});
+
+test('GIF rejects truncated structure', () => {
+  const result = verifyEntry(GIF_ENTRY, '/proj',
+    gifDeps(gifResult({ ok: false, reason: 'truncated' })));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /invalid GIF \(truncated\)/);
+});
+
+test('GIF rejects dimension mismatch', () => {
+  const result = verifyEntry(GIF_ENTRY, '/proj', gifDeps(gifResult({ width: 480, height: 480 })));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /dimensions 480×480 expected 512×512/);
+});
+
+test('GIF rejects a transparent token', () => {
+  const result = verifyEntry({ ...GIF_ENTRY, format: 'GIF transparent' }, '/proj', gifDeps());
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /transparent is not offered with GIF/);
+});
+
+test('GIF rejects an unparseable native size', () => {
+  const result = verifyEntry({ ...GIF_ENTRY, nativeSize: 'big' }, '/proj', gifDeps());
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /unparseable native size/);
+});
+
+test('GIF reports unreadable structure honestly', () => {
+  const result = verifyEntry(GIF_ENTRY, '/proj', gifDeps(null));
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /unable to read GIF structure/);
+});
+
+// ---- SVG entries -----------------------------------------------------------
+
+const SVG_ENTRY = {
+  ...PNG_ENTRY,
+  index: 4,
+  path: 'assets/icons/logo.svg',
+  format: 'SVG',
+  nativeSize: '512×512',
+};
+
+const SVG_BODY = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="red"/></svg>
+`;
+
+function withSvgFile(body, action) {
+  const dir = mkdtempSync(jpath(tmpdir(), 'pixeltamer-svg-test-'));
+  try {
+    const p = jpath(dir, 'logo.svg');
+    wfs(p, body);
+    return action(p);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function svgCheck(body, entry = SVG_ENTRY) {
+  return withSvgFile(body, (p) =>
+    verifyEntry({ ...entry, path: p }, jpath(p, '..'), { fs: makeFs() }));
+}
+
+test('passes when SVG width/height match (SVG)', () => {
+  const result = svgCheck(SVG_BODY);
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.width, 512);
+});
+
+test('SVG falls back to viewBox when width/height absent', () => {
+  const body = `<svg xmlns="x" viewBox="0 0 512 512"><rect/></svg>`;
+  const result = svgCheck(body);
+  assert.equal(result.ok, true, result.reason);
+});
+
+test('SVG rejects non-SVG content', () => {
+  const result = svgCheck('<html><body>not a svg</body></html>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /root element is <html>, not <svg>/);
+});
+
+test('SVG rejects dimension mismatch', () => {
+  const result = svgCheck('<svg width="256" height="256"></svg>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /dimensions 256×256 expected 512×512/);
+});
+
+test('SVG rejects missing dimensions entirely', () => {
+  const result = svgCheck('<svg xmlns="x"><rect/></svg>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /no verifiable width\/height or viewBox/);
+});
+
+test('SVG rejects a transparent token', () => {
+  const result = svgCheck(SVG_BODY, { ...SVG_ENTRY, format: 'SVG transparent' });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /not verifiable on SVG/);
+});
+
+test('SVG rejects a non-.svg extension', () => {
+  return withSvgFile(SVG_BODY, (p) => {
+    const pngPath = p.replace(/\.svg$/, '.png');
+    wfs(pngPath, SVG_BODY);
+    const result = verifyEntry({ ...SVG_ENTRY, path: pngPath }, jpath(pngPath, '..'), { fs: makeFs() });
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /extension .png does not match format/);
+  });
+});
+
+// ---- SVG adversarial cases (advisor round) ---------------------------------
+
+test('SVG smaller than the raster floor still verifies', () => {
+  // Real ~200-byte file, stubbed stat matches: SVG entries use a 64-byte floor.
+  const body = '<svg xmlns="x" width="512" height="512"><rect/></svg>';
+  const result = svgCheck(body);
+  assert.equal(result.ok, true, result.reason);
+});
+
+test('SVG rejects an HTML document containing an svg string', () => {
+  const result = svgCheck('<!DOCTYPE html><html><body><svg width="512" height="512"></svg></body></html>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /root element is <html>/);
+});
+
+test('SVG rejects a commented-out fake svg', () => {
+  const result = svgCheck('<!-- <svg width="512" height="512"></svg> -->\n<svg width="256" height="256"></svg>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /dimensions 256×256 expected 512×512/);
+});
+
+test('SVG rejects a truncated prolog', () => {
+  const result = svgCheck('<?xml version="1.0"?>\n<!-- unterminated comment');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /no SVG root element/);
+});
+
+test('SVG ignores data-width impostor attributes', () => {
+  const result = svgCheck('<svg xmlns="x" data-width="512" data-height="512" viewBox="0 0 512 512"><rect/></svg>');
+  assert.equal(result.ok, true, result.reason); // falls through to viewBox
+  const bad = svgCheck('<svg xmlns="x" data-width="512" data-height="512"><rect/></svg>');
+  assert.equal(bad.ok, false);
+  assert.match(bad.reason, /no verifiable width\/height or viewBox/);
+});
+
+test('SVG viewBox with negative origin and comma separators parses', () => {
+  const result = svgCheck('<svg xmlns="x" viewBox="-10,-10 512,512"><rect/></svg>');
+  assert.equal(result.ok, true, result.reason);
+});
+
+test('SVG fractional width fails exact compare', () => {
+  const result = svgCheck('<svg width="511.6" height="512"></svg>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /dimensions 511\.6×512 expected/);
+});
+
+test('SVG rejects non-positive viewBox dimensions', () => {
+  const result = svgCheck('<svg viewBox="0 0 0 512"></svg>');
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /no verifiable width\/height/);
 });
