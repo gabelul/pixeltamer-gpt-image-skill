@@ -51,9 +51,9 @@ tests/                               — 78 tests covering model selection, pars
 7. Visually self-verify with the `Read` tool. Image generation is stochastic; "API succeeded" ≠ "image is correct." Check subject, text spelling, artifacts, framing, color.
 8. Iterate one-dimension-at-a-time if wrong, or surface the path if right.
 
-## The two backends
+## The three backends
 
-Both use GPT Image generation through different transports. The API defaults to `gpt-image-2.5-flare`; the Codex service selects its image model:
+All three use GPT Image generation through different transports. The API defaults to `gpt-image-2.6-flare`; the Codex service selects its image model:
 
 **API backend** (`pixeltamer_api.py`):
 - POSTs to `/images/generations` (text-to-image) or `/images/edits` (edit / compose).
@@ -74,7 +74,15 @@ Both use GPT Image generation through different transports. The API defaults to 
 - Last-resort recovery: if codex saved to `~/.codex/generated_images/` but didn't copy to the requested path, scans the cache for the newest `ig_*.png` and copies it.
 - Generation only — no edits, no compose. Codex's image_gen tool doesn't support those.
 
-The dispatcher (`scripts/pixeltamer`) auto-detects which backend to use, honors `--backend api|codex|auto` and `PIXELTAMER_BACKEND` env, runs first-run config if neither backend is configured.
+**Codex-images backend** (`pixeltamer_api.py` with `PIXELTAMER_CODEX_IMAGES=1`, set by the dispatcher):
+- Direct POSTs to the ChatGPT-backend image service (`chatgpt.com/backend-api/codex/images/...`) using the codex OAuth token from `~/.codex/auth.json` — same subscription quota as the codex CLI, but no codex agent, no reasoning loop.
+- Opt-in only: `--backend codex-images`. Auto-detect never picks it (PNG-only and size-blind, so a silent pick would downgrade requests).
+- Verified live (2026-11-09): png output, `--background transparent` with real alpha (postcondition still verifies), `--quality`, `-n` parallel, edits/compose as JSON with `images[].image_url` data URIs (multipart is refused by the route).
+- Rejected up front: svg/gif/jpeg/webp output, `--frames`/`--frame-ms`, `--mask`, `--complexity`, `--input-fidelity`, `--output-compression`, `--moderation`, `--user`; `--size` is dropped with a note (the service picks the canvas).
+- Token refresh is never attempted in-place (it would rotate tokens behind codex's back). On 401: run any `codex` command to refresh, then retry.
+- Base URL is pinned with enforcement, not just convention: the test-only override is validated to loopback hosts, `.env` files can't set `PIXELTAMER_*` keys, and cross-origin redirects are refused (urllib forwards Authorization headers on redirects — a 30x to another host would otherwise leak the token).
+
+The dispatcher (`scripts/pixeltamer`) auto-detects which backend to use, honors `--backend api|codex|codex-images|auto` and `PIXELTAMER_BACKEND` env, runs first-run config if neither backend is configured.
 
 ## The batch state machine
 
@@ -93,19 +101,20 @@ The parser, verifier, and status writer are pure functions with dependency injec
 
 ## Backend tradeoffs
 
-| Axis | API | Codex |
-|---|---|---|
-| Auth | API key | ChatGPT subscription |
-| Marginal cost | per-image | included in subscription up to limits |
-| Latency per image | ~10–20s | ~30–90s (reasoning loop) |
-| Transparent background (real alpha) | ✅ param on all modes | ✅ `generate` only — no param, so the flag becomes prompt text + a post-gen alpha check |
-| Output file format (png / jpeg / webp) | ✅ | ❌ — both transports always return PNG |
-| Input fidelity (preserve faces / logos on edit+compose) | ✅ optional `--input-fidelity high` where model supports it | service-selected; no explicit knob |
-| Edit / inpaint | ✅ | ❌ |
-| Multi-reference compose | ✅ (up to 16 refs) | ❌ |
-| Mask / region edit | ✅ | ❌ |
-| Custom base URL / proxy | ✅ | ❌ |
-| Parallel `-n` | true parallel HTTP | sequential within codex |
+| Axis | API | Codex | Codex-images |
+|---|---|---|---|
+| Auth | API key | ChatGPT subscription | ChatGPT subscription (codex OAuth token) |
+| Marginal cost | per-image | included in subscription up to limits | same subscription quota |
+| Latency per image | ~10–20s | ~30–90s (reasoning loop) | ~10–20s (direct HTTP) |
+| Transparent background (real alpha) | ✅ param on all modes | ✅ all modes — no param, so the flag becomes prompt text + a post-run alpha check (edit/compose verified live 2026-11-06); `opaque`/`auto` refused | ✅ real param, measured alpha verified (live 2026-11-09) |
+| Output file format (png / jpeg / webp / gif / svg) | ✅ all of them | GIF via `-o out.gif` (codex assembles it from a sprite sheet + local ImageMagick; structural gate verifies). Everything else: both transports return PNG | PNG only — everything else rejected up front |
+| Input fidelity (preserve faces / logos on edit+compose) | ✅ optional `--input-fidelity high` where model supports it | service-selected; no explicit knob | ❌ rejected (2.6 edits reject it anyway) |
+| Edit / inpaint | ✅ | ❌ | ✅ edit (no mask) |
+| Multi-reference compose | ✅ (up to 16 refs) | ❌ | ✅ (up to 16 refs) |
+| Mask / region edit | ✅ | ❌ | ❌ rejected |
+| Custom base URL / proxy | ✅ | ❌ | ❌ pinned to chatgpt.com (never sends OAuth elsewhere) |
+| Parallel `-n` | true parallel HTTP | sequential within codex | true parallel HTTP |
+| Output size control | ✅ `--size` | ❌ server-chosen | ❌ `--size` dropped with a note |
 
 ## Testing
 

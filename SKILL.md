@@ -1,9 +1,11 @@
 ---
 name: pixeltamer
 description: |
-  Generate, edit, and compose images with GPT Image 2.5, including transparent PNGs
-  with a real alpha channel. Two backends — OpenAI API key or codex CLI (uses your
-  ChatGPT subscription, no key needed). Four modes — one-shot generate, edit or
+  Generate, edit, and compose images with GPT Image 2.6, including transparent PNGs
+  with a real alpha channel. Three backends — OpenAI API key (full feature set),
+  codex CLI on your ChatGPT subscription (agent-driven, no key needed), or the
+  direct ChatGPT image route on the same subscription token (--backend codex-images,
+  PNG-only, opt-in). Four modes — one-shot generate, edit or
   inpaint an existing image, multi-reference composition (up to 16 inputs blended
   into one), and multi-image batch with verification. Use when the user asks to
   make an image, generate a poster, draw a mockup, design an icon or sticker,
@@ -41,9 +43,9 @@ allowed-tools:
   - AskUserQuestion
 ---
 
-# pixeltamer — generate, edit, and compose images with GPT Image 2.5
+# pixeltamer — generate, edit, and compose images with GPT Image
 
-Image generation that actually does what you asked for. Two backends so you don't have to pick a side: bring an OpenAI API key OR use the codex CLI signed in to your ChatGPT subscription. The API backend defaults to `gpt-image-2.5-flare` and accepts `--model`; Codex selects its image model server-side. Same skill, same prompts, your choice of how to pay.
+Image generation that actually does what you asked for. Three backends so you don't have to pick a side: bring an OpenAI API key, use the codex CLI signed in to your ChatGPT subscription (agent-driven), or hit the ChatGPT image service directly with the same subscription token (`--backend codex-images`). The API backend defaults to `gpt-image-2.6-flare` and accepts `--model`; Codex selects its image model server-side. Same skill, same prompts, your choice of how to pay.
 
 ## When to use this
 
@@ -64,7 +66,7 @@ Run this first to see what's available:
 pixeltamer doctor
 ```
 
-If the output shows at least one backend with a `✓` marker, you're set — go generate. Auto-detect picks API if a key is set, otherwise codex. Override with `--backend api|codex` per-call or set `PIXELTAMER_BACKEND` env var.
+If the output shows at least one backend with a `✓` marker, you're set — go generate. Auto-detect picks API if a key is set, otherwise codex. Override with `--backend api|codex|codex-images` per-call or set `PIXELTAMER_BACKEND` env var.
 
 **If `pixeltamer doctor` fails with `permission denied` instead of printing backend status:** the `skills` CLI stripped the dispatcher's execute bit on install/update. The dispatcher can't restore its own bit (it has to run to do that), so bootstrap it once via bash — it self-heals everything else from there:
 
@@ -79,9 +81,10 @@ Every other script now runs via its interpreter, so the dispatcher is the only f
 
 If BOTH backends show `✗`, **do not run `pixeltamer config`** — it's an interactive prompt that needs a real TTY, which the Bash tool doesn't have, so the call hangs forever. Use `AskUserQuestion` instead and offer the user this choice:
 
-> "Pixeltamer needs one of two backends. Pick:
->  **API key** — fastest, full feature set (edit + compose), per-image cost.
->  **Codex CLI** — uses your existing ChatGPT Plus/Team/Enterprise subscription, no key, generation only."
+> "Pixeltamer needs one of three backends. Pick:
+>  **API key** — fastest, full feature set (edit + compose + masks + svg/gif), per-image cost.
+>  **Codex CLI** — uses your existing ChatGPT Plus/Team/Enterprise subscription, no key, agent-driven.
+>  **Codex-images** — same subscription, direct HTTP route (no agent): fast, PNG only, no size control."
 
 ### If the user picks API
 
@@ -113,6 +116,18 @@ codex login status
 No restart needed. The bash backend reads codex auth fresh on every invocation.
 
 codex updates **separately** from the skill — `npx skills update` won't touch it. `pixeltamer doctor` now reports the installed codex version and flags when it's behind npm latest (a stale codex is a known failure mode — an old schema version once caused indefinite hangs). If doctor says an update's available, run `npm install -g @openai/codex@latest`.
+
+### If the user picks codex-images (third backend, opt-in)
+
+`--backend codex-images` skips the codex agent entirely: pixeltamer POSTs to the ChatGPT-backend image service with the codex OAuth token from `~/.codex/auth.json`. Same subscription quota, no codex exec, no orchestrator.
+
+Verified surface (probed live 2026-11-09, see `references/images26-migration.md` item 11):
+
+- `generate` / `edit` / `compose` on `gpt-image-2.6-flare`, PNG output only
+- `--background transparent` returns a real alpha channel, and the alpha postcondition still verifies it
+- `--quality`, `-n` (true parallel calls), `--model` passthrough
+
+Hard limits, rejected up front with per-flag errors: no `--size` (the service picks the canvas; dropped with a note), no svg/gif/jpeg/webp output, no `--frames`/`--frame-ms`, no `--mask`, no `--complexity`, no `--input-fidelity`, no `--output-compression`. Token refresh is deliberately not attempted in-place — if a call 401s, run any `codex` command to refresh, then retry.
 
 ### After the user sets things up
 
@@ -148,10 +163,12 @@ alpha, not a green screen you clean up afterwards:
 pixeltamer generate -p "<isolated subject>" --background transparent -o asset.png
 ```
 
-Works on **both backends** for `generate`. On API it's a request parameter; on
-codex it's translated into prompt instructions (codex has no background param)
-plus an automatic alpha check that warns on stderr if the PNG came back RGB.
-Codex `edit`/`compose` can't do it — the dispatcher says so.
+Works on **both backends**, all modes. On API it's a request parameter. On codex
+it's translated into prompt instructions (codex has no background param) plus an
+automatic alpha check — on `generate` via the wrapper, and on `edit`/`compose`
+via the OAuth transport, where prompt-driven transparency was measured working
+(2026-11-06: real alpha channel on a codex edit, 62% transparent pixels). Codex
+has no `opaque`/`auto` — those are refused.
 
 The catch worth knowing before you write the prompt: **the prompt outranks the
 flag.** Any backdrop, surface, scene, or cast shadow you describe gets painted,
@@ -197,6 +214,7 @@ For projects that need 4+ related images (a website's hero + features + footer +
 1. Survey what images are needed.
 2. Plan a `prompts.md` with one entry per image (target path, format, native size, optional reference, status, prompt).
    Entries whose `Format` says `PNG transparent` must be generated with `--background transparent` — the verifier checks for a real alpha channel and fails them otherwise.
+   Animated entries use `Format: GIF animated` (requires ≥2 frames; plain `GIF` allows static) — the verifier checks GIF structure, dimensions, and frame count via `lib/gif-inspect.mjs`. GIF + transparent is a config error, not a checkable state.
    When the batch is a *collection* (product range, icon family, sticker pack), write one shared style-and-constraint block and append it verbatim to every entry's prompt. That constant suffix is what makes N separate generations read as one set — see `references/transparency.md`.
 3. Generate each one, calling the right backend per entry.
 4. Run `pixeltamer batch <path-to-prompts.md>` to verify every output (file exists, dimensions match, file size sane).
@@ -311,16 +329,20 @@ Pull only what's needed for the current job. Don't dump them all.
 
 | Need | Use |
 |---|---|
-| Fastest single image | API with the default `gpt-image-2.5-flare` |
+| Fastest single image | API with the default `gpt-image-2.6-flare` (`--complexity low` for quick edits) |
 | Don't have / don't want an API key | codex |
+| ChatGPT quota without the codex agent round-trip | codex-images (`--backend codex-images`) — PNG only, no `--size`, transparent verified |
 | Edit an existing image (no mask) | Either backend — API or codex-OAuth |
 | Mask-based inpainting | API only — Responses API doesn't take a mask parameter |
 | Preserving a face / logo / label type across an edit | API; use Sunburst and keep the critical reference first |
 | A guaranteed output size when editing | API only — codex ignores `--size` for `edit`/`compose` and returns the input's aspect |
 | Compose 2–16 references into one | Either backend — API or codex-OAuth |
 | Run on a teammate's machine without sharing credentials | codex (each user signs in separately) |
-| Transparent background / real alpha channel | Both, for `generate` — API takes it as a param, codex via prompt + verification. Codex `edit`/`compose`: API only |
-| A specific output file format (png / jpeg / webp) | API only via `--output-format` — both codex transports always return PNG |
+| Transparent background / real alpha channel | All modes, both backends — API takes it as a param; codex turns it into a prompt clause and alpha-verifies the result (verified working on codex `edit`/`compose`, 2026-11-06). Codex has no `opaque`/`auto` |
+| Animated GIF, API backend | `pixeltamer generate -o out.gif --output-format gif [--frames 2-16] [--frame-ms 20-2000]` — official 2.6 contract, per-frame `--size`, works on `edit` too (reference → GIF) |
+| Animated GIF, codex backend | `pixeltamer generate -o out.gif [--frames N] [--frame-ms M]` — codex assembles it from a sprite sheet + local ImageMagick; best-effort hints, structure-verified after the run |
+| Vector export (SVG) | API only, 2.6 models: `--output-format svg -o out.svg`. Transparency sent but not alpha-verified (no raster alpha to measure) — check the render visually. Batch `Format: SVG` entries are dimension-checked from width/height/viewBox |
+| A specific output file format (png / jpeg / webp) | API only via `--output-format` — codex transports return PNG (GIF via the out.gif path above) |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
 | Maximum quality / edit precision | API with `OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst` |
 | Largest sizes (4K) at high quality | API; on codex, `--size` is honoured for `generate` only and its reasoning loop slows on large outputs |

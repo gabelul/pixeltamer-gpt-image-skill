@@ -6,6 +6,54 @@ All notable changes to pixeltamer get logged here. Format follows [Keep a Change
 
 _No unreleased changes._
 
+## [0.8.0] - 2026-11-09
+
+### Added
+
+- **GPT Image 2.6 support, API backend.** Default model is now `gpt-image-2.6-flare` (see Changed). The model-family check only recognised `gpt-image-2`/`gpt-image-2.5` prefixes, so a 2.6 slug fell through to legacy parameter handling — wrong parameter behaviour with no error anywhere. `--complexity low|medium|high` passes through to 2.6 models and is rejected on anything older, since older models 400 on the unknown field. `input_fidelity` is refused on 2.6 edits per the official contract. The official docs also corrected two claims this repo had absorbed from a third-party proxy: 2.6 does support `background transparent` and pixel-size `WxH` values — the "1k-only, no transparency" limits were the proxy's, not the model's.
+
+- **GIF output.** API backend: `--output-format gif` with `--frames 2-16` and `--frame-ms 20-2000`, mapping to `frame_count`/`frame_duration_ms`. Size is per-frame with a total-pixel budget, and the budget check uses the **effective** frame count — omit `--frames` and the server still bills nine, so validating with one frame let oversized requests through to a 400. GIF plus `--background transparent` is refused up front: a 256-colour palette's transparency is real but unverifiable with our alpha tooling, and shipping an unverifiable contract is how the "transparent" flag stops meaning anything. Codex wrapper: `--frames`/`--frame-ms` are honest prompt hints, not a contract — codex's agent assembles the GIF itself (sprite sheet, ImageMagick, its own loop choices), so a structural gate replaces parameter passing: `scripts/lib/gif-inspect.mjs` walks the blocks (signature, frame descriptors, delays, NETSCAPE loop count, truncation) and publishes only files with ≥2 frames. Without node the gate hard-fails; the old 6-byte signature fallback that passed unverified GIFs is gone.
+
+- **`scripts/lib/gif-inspect.mjs`** — zero-dependency bounded GIF block walker, shared by the wrapper publish gate and the batch verifier. Structural parsing cannot prove the frames differ; for motion verification use ImageMagick RMSE (`references/post-process.md`).
+
+- **SVG output, API backend.** `--output-format svg` on all three modes. SVG plus `--background transparent` is allowed and the background parameter is sent, but the result is honestly reported as unverified — SVG has no alpha channel to measure, and the postcondition only fails on outputs it can measure as opaque. SVG on `edit`/`compose` is officially undocumented; fall back to PNG on a 400. The codex backend is PNG-only, and that's now proven rather than assumed — see Documented.
+
+- **codex-images: a third backend.** `--backend codex-images` replays the codex CLI's own OAuth session directly against the Images-API-shaped routes on `chatgpt.com/backend-api/codex` — the routes the codex imagegen extension uses, recovered by pointing codex at a local capture server (its `model_providers.*.base_url` config made that possible without TLS interception). What it buys: generate/edit/compose with a real alpha channel on ChatGPT subscription quota, no orchestrator in the middle, edits that keep the input's aspect ratio. Live-verified: generate 58.4% measured alpha, edit 57.9% with input aspect kept, compose 47.5%.
+
+  What it doesn't buy, and refuses before spending a request: SVG (the route silently answers PNG), GIF (server 400 `GIF output is not enabled for this request`), `--size` (server-chosen; dropped with a note), `--mask`, `--input-fidelity`, `--complexity`. Every rejection names the backend that does support the flag.
+
+  Auth has rules. Tokens are read from `~/.codex/auth.json` (path overridable for tests) and never refreshed in place — an in-memory refresh rotates tokens behind codex's back and breaks its own session, so a 401 says run `codex login`. The base URL is pinned with enforcement, not convention: the test-only override is validated to loopback hosts, `.env` files may not set `PIXELTAMER_*` keys at all (a stray line in some project's dotenv must not be able to redirect your OAuth token), and cross-origin redirects are refused rather than followed — urllib forwards Authorization headers on a redirect, so a 30x pointing elsewhere would walk the bearer token over to whoever owns the Location.
+
+  Opt-in only. Auto-detect never picks it, because silently routing a request to a backend with a narrower parameter contract is a downgrade the user didn't ask for.
+
+- **Codex `edit`/`compose` transparency.** The "API only" claim in these docs rested on local code guards and was never measured; a live test proved prompt-driven transparency survives both modes (62.1% on an edit, 70.7% on a compose). `--background` is now wired on the OAuth path with post-run alpha verification, and the dispatcher guard is gone. Related fix: the OAuth orchestrator's hardcoded `gpt-5.4` had been rejected by the endpoint (`model_not_found`), which silently broke every codex edit/compose. The default is now `gpt-6.1-terra` — probe-verified as accepted and live-proven driving a real image edit, and chosen for cost, since the orchestrator only wraps `image_generation` calls. `PIXELTAMER_RESPONSES_MODEL` overrides.
+
+- **Cache recovery on the codex wrapper is opt-in by default** (`PIXELTAMER_CODEX_RECOVER=1`). The start-marker filter cannot attribute a cache file to a run, so recovery could publish a concurrent run's file as yours; 0.7.1's fix widened the glob, this one adds intent — the scan is extension-matched (a GIF request's sprite-sheet stills can't fill a .png slot mid-batch), fill-only-missing-slots, and magic-byte validated, and the default is now to fail loudly rather than publish a possibly-foreign asset. Shellless container mode is the deliberate exception: its child has no file tools, so recovery is the only publisher and always runs there.
+
+- **Batch verifier speaks GIF and SVG.** `Format: GIF` checks signature and dimensions; `Format: GIF animated` additionally requires ≥2 frames. SVG entries get real structure checks (see Changed).
+
+### Changed
+
+- **API default model is `gpt-image-2.6-flare`.** No automatic fallback — a silent downgrade to 2.5 would change output contracts without telling anyone. Pin 2.5 with `--model` or `OPENAI_IMAGE_MODEL`.
+
+- **The SVG verifier is no longer a regex with delusions.** It used to match `<svg` anywhere — including inside comments and HTML documents — and `\bwidth=` matched `data-width=`. Now: a prolog walker that skips comments, processing instructions and doctypes and requires the first real element to be `<svg>`; a genuinely bounded 4096-byte head read (the old "bounded" read opened the whole file); whitespace-anchored attribute regexes; Number-based viewBox parsing (negatives, commas, exponents); exact unrounded dimension comparison; and a 64-byte floor for SVG instead of the 10KB raster floor that rejected legitimate small icons. Eight adversarial tests encode the failure shapes.
+
+- **Saved bytes are sniffed against the requested format on every write path**, single and parallel. A server that silently falls back from SVG to PNG now fails loudly with `output_format_mismatch` instead of handing you mislabeled bytes and letting the extension lie.
+
+- **The transparency postcondition runs in both output modes.** Plain mode used to exit 0 on an opaque result because only JSON mode recorded outputs — a plain invocation shipped a useless cutout as a green success. Related: an RGB PNG (colour type 2) carries no alpha channel at all, which is structurally knowable, so it now fails as opaque instead of hiding behind "couldn't measure".
+
+### Fixed
+
+- Duplicate `global` declarations in one Python function are a compile-time SyntaxError that `ast.parse` does not catch — it skips the symbol-table pass. Use `compile()` for syntax checks.
+- The test capture server JSON-parsed multipart bodies and answered GIF edit requests with PNG bytes, tripping the (correct) client-side sniffing. The harness now echoes the multipart `output_format` field.
+- Stale docs: CLAUDE.md still claimed the 2.5 default after the migration; backend tables now describe three backends.
+
+### Documented (honest findings)
+
+- **Codex backend formats are PNG, period.** Three independent confirmations: the CLI binary's strings contain no `svg` in any image-tool context; the embedded imagegen skill's fallback CLI validates `png/jpeg/jpg/webp` only (and needs `OPENAI_API_KEY` anyway, which defeats the purpose); and the hosted tool's full client-side schema is exactly `{prompt, transparent_background, referenced_image_paths, num_last_images_to_include}` — confirmed by live invocation, which returned PNG.
+- **Every codex PNG carries a C2PA `caBX` JUMBF chunk with an `image/svg+xml` assertion.** It looks like a hidden vector export. It is a constant provenance icon, byte-identical across unrelated images while the caBX blobs themselves differ. Validate extracted "hidden" assets against multiple unrelated images before claiming content linkage.
+- **The codex images route honours a subset of the public API surface**: `output_format` ignored, size server-chosen, GIF hard-gated, and quality/background behaviour partly non-deterministic between runs. Full contract in `references/images26-migration.md` item 11.
+
 ## [0.7.1] - 2026-11-04
 
 ### Fixed
@@ -70,6 +118,7 @@ _No unreleased changes._
   artifact verification) is written up with the exact command line that
   survived production.
 
+||||||| parent of d1ab6e5 (chore(release): 0.7.0)
 ## [0.6.0] - 2026-09-28
 
 ### Added
@@ -339,7 +388,10 @@ _No unreleased changes._
 - SKILL.md for full-context environments and SKILL-OC.md token-optimized variant for OpenClaw.
 - Multi-image batch verifier with state-machine `prompts.md` format and a 29-test node:test suite.
 
-[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.5.6...v0.6.0
 [0.3.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/gabelul/pixeltamer-gpt-image-skill/compare/v0.1.0...v0.2.0

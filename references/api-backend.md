@@ -10,8 +10,27 @@ The default and most capable backend. Talks to `/images/generations` and `/image
 
 ## When NOT to use
 
-- You're paying for ChatGPT Plus/Team and want generation included in that — use the codex backend instead.
+- You're paying for ChatGPT Plus/Team and want generation included in that — use the codex backend, or `--backend codex-images` if you don't want the codex agent in the loop.
 - You're shipping pixeltamer to a teammate who doesn't have an API key — point them at codex too.
+
+## Codex-images mode (subscription quota, no API key)
+
+`--backend codex-images` reuses this same Python client but swaps the transport: requests go to `https://chatgpt.com/backend-api/codex/images/{generations,edits}` with the codex CLI's OAuth token from `~/.codex/auth.json` (headers: `Authorization: Bearer`, `ChatGPT-Account-ID`, `originator: codex_exec`, a codex-shaped user-agent). Multipart is refused by that route — edits/compose are sent as JSON with `images[].image_url` data URIs.
+
+What works (probed live 2026-11-09; see `images26-migration.md` item 11 for the wire contract):
+
+- `generate` / `edit` / `compose` on `gpt-image-2.6-flare`, PNG output
+- `--background transparent` — real alpha, and the measured-alpha postcondition still runs
+- `--quality`, `-n` (true parallel HTTP), `--model` passthrough (non-default models get an "unverified on this route" note)
+
+What's refused before any network call, each with its own error: `--output-format` other than png, `--frames`/`--frame-ms`, `--mask`, `--complexity`, `--input-fidelity`, `--output-compression`, `--moderation`, `--user`. `--size` is dropped with a stderr note — the service picks the canvas.
+
+Operational notes:
+
+- 401 means the OAuth token expired. Run any `codex` command (it refreshes `auth.json`), then retry. Pixeltamer never refreshes in place — an in-memory refresh would rotate tokens behind codex's back and break its session.
+- 403 usually means Cloudflare blocked the request before it reached the image service.
+- The base URL is pinned and enforced: `PIXELTAMER_CODEX_IMAGES_BASE` is rejected unless it points at 127.0.0.1/localhost (a test capture server), `.env` files may not set `PIXELTAMER_*` keys at all, and cross-origin redirects are refused rather than followed — a 30x pointing at another host would otherwise carry the bearer token with it.
+- Token path override for tests: `PIXELTAMER_CODEX_AUTH_JSON`.
 
 ## Auth
 
@@ -33,28 +52,38 @@ This is how you point pixeltamer at proxies and OpenAI-compatible hosts (jmrai.n
 
 ## Model
 
-Default: `gpt-image-2.5-flare`. OpenAI recommends Flare for fast, high-quality everyday work; it improves editing and subject preservation over GPT Image 2 while cutting latency.
+Default: `gpt-image-2.6-flare` (as of the Images 2.6 rollout, 2026-11). Flare is the fast variant — roughly 6s at low quality — and does poster and product layouts well. Sunburst is the quality variant: better output and edit consistency at medium/high quality.
 
 Use Sunburst when output quality or edit precision matters more than speed:
 
 ```bash
-OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst pixeltamer generate -p "..." -o final.png
+OPENAI_IMAGE_MODEL=gpt-image-2.6-sunburst pixeltamer generate -p "..." -o final.png
 ```
 
 `OPENAI_IMAGE_MODEL` changes the default for every API subcommand. Per-call `--model` wins over the environment:
 
 ```bash
-pixeltamer generate --model gpt-image-2.5-sunburst -p "..." -o final.png
+pixeltamer generate --model gpt-image-2.6-sunburst -p "..." -o final.png
 ```
 
 Available OpenAI model IDs include:
 
-- `gpt-image-2.5-flare` — default; fast everyday generation and editing.
-- `gpt-image-2.5-sunburst` — best quality and edit precision; slower.
-- `gpt-image-2` — previous model; useful as a migration baseline or rollback.
+- `gpt-image-2.6-flare` — default; fast everyday generation, poster/product layouts, GIF and SVG output.
+- `gpt-image-2.6-sunburst` — best quality and edit consistency at medium/high quality; slower.
+- `gpt-image-2.5-flare` / `gpt-image-2.5-sunburst` — previous generation; still the choice when a proxy hasn't shipped 2.6, or when you need `--input-fidelity` on edits (2.6 drops it).
+- `gpt-image-2` — older model; useful as a migration baseline or rollback.
 - `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini` — older compatibility choices.
 
 Both 2.5 aliases currently point at dated `2026-09-08` snapshots. Use the undated alias for automatic upgrades, or the dated ID when repeatability matters.
+
+### Images 2.6 extras
+
+- `--complexity low|medium|high` — planning depth before rendering. Default high (server-side); lower is faster and suits focused edits. 2.6-only: passed with an older model, the client refuses instead of paying for a 400.
+- `--output-format gif` — animated GIF on generations AND edits (reference-image → GIF works). Pair with `--frames 2-16` and `--frame-ms 20-2000` (API rounds to 10ms). Without the flags you get the server defaults (9 frames, 200ms). With a GIF target, `--size` is per-frame and the total pixel budget covers every frame.
+- Transparent + GIF is refused: GIF transparency is binary palette transparency, not alpha, and pixeltamer can't verify it. Use png/webp for cutouts.
+- `--input-fidelity` must be dropped on 2.6 edits — the API rejects requests that carry it. The client refuses up front and points at 2.5.
+- `--output-format svg` — vector export on 2.6 models. Pairs with `--background transparent` (sent as requested, but SVG has no raster alpha channel — pixeltamer can't verify it and says so). SVG on `edit`/`compose` is not documented by OpenAI either way; if you hit a 400, fall back to PNG and vectorize.
+- See `references/images26-migration.md` for the full contract and what's still unverified.
 
 ## Endpoints used
 
