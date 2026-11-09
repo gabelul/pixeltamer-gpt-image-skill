@@ -32,6 +32,7 @@ Never write a prompt from scratch when a similar pattern exists in our recipes o
 | Consuming pixeltamer from an agent or script — structured results, error codes, retry decisions | `references/json-output.md` | The `--json` envelope: one object on stdout always, typed codes, three-valued `retryable`, alpha semantics |
 | API backend troubleshooting, env vars, custom hosts (jmrai, ZenMux, OpenRouter) | `references/api-backend.md` | OpenAI API specifics |
 | Codex backend troubleshooting, invocation patterns | `references/codex-backend.md` | Codex CLI specifics |
+| Images 2.6 upgrade — model slugs, complexity/GIF/SVG contracts, transparency status, codex-GIF mechanism, migration plan | `references/images26-migration.md` | Research notes for the 2.6 rollout; read before touching model defaults, GIF support, or transparency docs |
 
 ## External references
 

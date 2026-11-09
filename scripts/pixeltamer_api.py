@@ -11,7 +11,16 @@ Auth:
   OPENAI_API_KEY         — fallback
   OPENAI_IMAGE_BASE_URL  — override base URL (default https://api.openai.com/v1)
   OPENAI_BASE_URL        — fallback for base URL
-  OPENAI_IMAGE_MODEL     — override default model (default gpt-image-2.5-flare)
+  OPENAI_IMAGE_MODEL     — override default model (default gpt-image-2.6-flare)
+
+Transport mode (set by the dispatcher for `--backend codex-images`):
+  PIXELTAMER_CODEX_IMAGES=1   — talk to the ChatGPT-backend image service with
+      the codex CLI's OAuth token (~/.codex/auth.json) instead of an API key.
+      PNG only; size ignored; svg/gif/jpeg/webp/frames/mask/complexity and
+      friends are rejected up front (see _validate_codex_images_params). Base
+      URL is pinned to chatgpt.com/backend-api/codex — PIXELTAMER_CODEX_IMAGES_BASE
+      exists for the test capture server only and must never carry OAuth
+      credentials to another host.
 
 Env file loading: looks for .env in cwd, ~/.config/pixeltamer/.env, ~/.claude/.env,
 and the script directory. First match wins. Existing process env is never overridden.
@@ -35,7 +44,10 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+import uuid
+import platform
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, NoReturn
@@ -89,10 +101,13 @@ def _fail(code: str, message: str, retryable: str = "no", **details) -> NoReturn
 
 
 def _deliver(path: Path) -> None:
-    """Hand a finished file to the caller, however this run reports results."""
-    if JSON_MODE:
-        _outputs.append(path)
-    else:
+    """Hand a finished file to the caller, however this run reports results.
+
+    Always records the path in _outputs — the transparency postcondition runs
+    in both modes and needs to see every produced file, not just the JSON ones.
+    """
+    _outputs.append(path)
+    if not JSON_MODE:
         print(path, flush=True)
 
 
@@ -125,7 +140,8 @@ def _probe_png(path: Path) -> dict | None:
         "import(process.argv[1]).then(m => {"
         "const d = m.readImageDimensions(process.argv[2]);"
         "const c = m.readAlphaCoverage(process.argv[2]);"
-        "process.stdout.write(JSON.stringify({d, c}));"
+        "const a = m.readHasAlphaChannel(process.argv[2]);"
+        "process.stdout.write(JSON.stringify({d, c, a}));"
         "}).catch(() => process.stdout.write('{}'));"
     )
     try:
@@ -155,9 +171,15 @@ def _probe_png(path: Path) -> dict | None:
             "partial_pct": cov.get("partialPct"),
         }
     else:
+        has_alpha = raw.get("a")
         result["alpha"] = {
-            "present": None, "measured": False,
+            "present": None if has_alpha is None else False,
+            "measured": False,
             "transparent_pct": None, "partial_pct": None,
+            # Structurally knowable even when pixel decoding fails: an RGB
+            # PNG (colour type 2) has no alpha channel at all, which the
+            # postcondition treats as opaque rather than as "unknown".
+            "has_alpha_channel": has_alpha,
         }
     return result
 
@@ -174,8 +196,14 @@ def _check_transparency_postcondition(described: list[dict]) -> None:
         return
     opaque = [
         d for d in described
-        if (d.get("alpha") or {}).get("measured")
-        and (d["alpha"].get("transparent_pct") or 0) < 1
+        if (
+            # Measured and effectively opaque, OR structurally alpha-less: an
+            # RGB PNG carries no alpha channel, so "unknown" would be a lie —
+            # the answer is knowably "no alpha".
+            ((d.get("alpha") or {}).get("measured")
+             and (d["alpha"].get("transparent_pct") or 0) < 1)
+            or ((d.get("alpha") or {}).get("has_alpha_channel") is False)
+        )
     ]
     if opaque:
         _fail(
@@ -222,7 +250,13 @@ def _emit_error(command: str, backend: str, started: float,
 # --------------------------------------------------------------------------- env
 
 def _load_env_file(path: Path) -> None:
-    """Tiny .env loader. Doesn't override values already in os.environ."""
+    """Tiny .env loader. Doesn't override values already in os.environ.
+
+    PIXELTAMER_* keys are refused from .env files on purpose: they flip the
+    transport and swap the credential source, so a stray line in some project's
+    .env must never be able to redirect OAuth tokens or change which backend a
+    `--backend api` invocation actually uses.
+    """
     if not path.is_file():
         return
     try:
@@ -233,7 +267,7 @@ def _load_env_file(path: Path) -> None:
             k, v = line.split("=", 1)
             k = k.strip()
             v = v.strip().strip('"').strip("'")
-            if k and k not in os.environ:
+            if k and not k.startswith("PIXELTAMER_") and k not in os.environ:
                 os.environ[k] = v
     except Exception:
         pass
@@ -255,7 +289,220 @@ DEFAULT_BASE = (
     or os.environ.get("OPENAI_BASE_URL")
     or "https://api.openai.com/v1"
 )
-DEFAULT_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2.5-flare")
+DEFAULT_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-2.6-flare")
+
+# ---------------------------------------------------------- codex-images mode
+
+# With PIXELTAMER_CODEX_IMAGES=1 the client talks to OpenAI's ChatGPT-backend
+# image service instead of api.openai.com, using the codex CLI's OAuth token
+# (~/.codex/auth.json) rather than an API key. Live-verified 2026-11-09:
+# transparent backgrounds return real alpha on generate/edit/compose, edits
+# take JSON with images[].image_url data URIs (multipart is refused), size and
+# output_format are silently ignored (svg falls back to PNG bytes), GIF is
+# hard-gated server-side. See references/images26-migration.md item 11.
+_CODEX_IMAGES = os.environ.get("PIXELTAMER_CODEX_IMAGES") == "1"
+_CODEX_AUTH_PATH = Path(
+    os.environ.get("PIXELTAMER_CODEX_AUTH_JSON") or (_HOME / ".codex" / "auth.json")
+)
+# Base pin: OAuth credentials must never be sent to an arbitrary host. The
+# env override exists for the test capture server ONLY and is validated to a
+# loopback origin by _codex_images_base() — the dispatcher and docs never set
+# it, .env loading refuses PIXELTAMER_* keys, and overriding it in production
+# would leak the codex token.
+def _codex_images_base() -> str:
+    """Resolve the codex-images base URL, refusing non-loopback overrides.
+
+    The override exists so tests can point the transport at a local capture
+    server. Anything that isn't 127.0.0.1/localhost/[::1] is a hard fail —
+    not a warning — because this base URL is where the OAuth bearer token is
+    about to be sent.
+
+    @return base URL without a trailing slash
+    """
+    raw = os.environ.get("PIXELTAMER_CODEX_IMAGES_BASE")
+    if not raw:
+        return "https://chatgpt.com/backend-api/codex"
+    host = (urllib.parse.urlsplit(raw).hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        _fail(
+            "invalid_argument",
+            "PIXELTAMER_CODEX_IMAGES_BASE may only point at a loopback test "
+            "capture server (127.0.0.1/localhost); refusing to send the codex "
+            f"OAuth token to {host or raw!r}.",
+            field="pixeltamer-codex-images-base",
+        )
+    return raw
+_CODEX_SIZE_NOTE = (
+    "pixeltamer: codex-images route does not honour --size — the service "
+    "picks the canvas (edits tend to follow the input aspect). Size was "
+    "not sent."
+)
+
+
+def _codex_oauth_token() -> tuple[str, str]:
+    """Read (access_token, account_id) from the codex CLI's auth.json.
+
+    No refresh flow: refreshing in memory would rotate the refresh token
+    without updating auth.json, breaking codex's own session. On expiry the
+    user runs any codex command to refresh, then retries. Failures exit with
+    guidance pointing at either codex login or the API-key backend.
+
+    @return (access_token, account_id) from tokens, both non-empty
+    """
+    if not _CODEX_AUTH_PATH.exists():
+        _fail(
+            "auth_missing",
+            f"{_CODEX_AUTH_PATH} not found. Run `codex login` first, or use "
+            "the API-key backend (--backend api) instead.",
+        )
+    try:
+        auth = json.loads(_CODEX_AUTH_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        _fail("auth_invalid", f"{_CODEX_AUTH_PATH} is not valid JSON: {e}")
+    tokens = auth.get("tokens") or {}
+    token = (tokens.get("access_token") or "").strip()
+    account = (tokens.get("account_id") or "").strip()
+    if not token:
+        _fail(
+            "auth_missing",
+            f"{_CODEX_AUTH_PATH} has no tokens.access_token. Run `codex login`.",
+        )
+    return token, account
+
+
+def _codex_images_headers() -> dict:
+    """Headers that get the ChatGPT-backend image route past its front door.
+
+    Without the codex originator/user-agent pair the route returns a
+    Cloudflare HTML block page rather than a JSON error. Verified live.
+
+    @return header dict for POSTs to the codex-images route
+    """
+    token, account = _codex_oauth_token()
+    sid = str(uuid.uuid4())
+    ua = (
+        f"codex_exec/0.161.0 ({platform.system()} {platform.release()}; "
+        f"{platform.machine()}) (pixeltamer codex-images)"
+    )
+    return {
+        "Authorization": f"Bearer {token}",
+        "ChatGPT-Account-ID": account,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "originator": "codex_exec",
+        "user-agent": ua,
+        "session-id": sid,
+        "thread-id": sid,
+        "x-client-request-id": sid,
+        "x-codex-imagegen-request-id": str(uuid.uuid4()),
+    }
+
+
+def _validate_codex_images_params(a: argparse.Namespace, out_fmt: str | None) -> None:
+    """Fail closed on everything not verified live on the codex-images route.
+
+    The route silently ignores size, silently downgrades svg requests to PNG
+    bytes, and 400s GIF with a feature-gate error — so a caller pointing a
+    .svg output path at this backend would get a PNG saved as .svg without
+    this gate. Verified surface: png output, background=transparent (real
+    alpha), quality, n, edits/compose via images[].image_url.
+
+    @param a parsed argparse namespace for the current subcommand
+    @param out_fmt resolved output format or None (server default png)
+    """
+    if out_fmt == "svg":
+        _fail(
+            "invalid_argument",
+            "SVG export is not available on the codex subscription route: the "
+            "service silently returns PNG bytes for svg requests. Use --backend "
+            "api with OPENAI_IMAGE_API_KEY for real SVG.",
+            field="output-format",
+        )
+    if out_fmt == "gif":
+        _fail(
+            "invalid_argument",
+            "GIF output is hard-gated on the codex subscription route (the "
+            "server 400s with 'GIF output is not enabled'). Use --backend codex "
+            "for agent-assembled GIFs, or --backend api for native GIF.",
+            field="output-format",
+        )
+    if out_fmt in ("jpeg", "webp"):
+        _fail(
+            "invalid_argument",
+            f"{out_fmt} output is not yet verified on the codex-images route. "
+            "Use --backend api, or omit --output-format (png is what this "
+            "route returns).",
+            field="output-format",
+        )
+    if getattr(a, "frames", None) or getattr(a, "frame_ms", None):
+        _fail(
+            "invalid_argument",
+            "--frames/--frame-ms are GIF-only and GIF is not available on the "
+            "codex subscription route.",
+            field="frames",
+        )
+    if getattr(a, "mask", None):
+        _fail(
+            "invalid_argument",
+            "--mask (inpainting) is not verified on the codex-images route. "
+            "Use --backend api for masked edits.",
+            field="mask",
+        )
+    if getattr(a, "input_fidelity", None):
+        _fail(
+            "invalid_argument",
+            "--input-fidelity is not supported on the codex-images route "
+            "(2.6 edits reject it regardless).",
+            field="input-fidelity",
+        )
+    if getattr(a, "complexity", None):
+        _fail(
+            "invalid_argument",
+            "--complexity is not verified on the codex-images route (the "
+            "service may ignore it silently). Use --backend api.",
+            field="complexity",
+        )
+    if getattr(a, "output_compression", None) is not None:
+        _fail(
+            "invalid_argument",
+            "--output-compression applies only to jpeg/webp output, neither "
+            "of which is verified on the codex-images route. Drop it.",
+            field="output-compression",
+        )
+    if getattr(a, "moderation", None):
+        _fail(
+            "invalid_argument",
+            "--moderation is not verified on the codex-images route. "
+            "Use --backend api.",
+            field="moderation",
+        )
+    if getattr(a, "user", None):
+        _fail(
+            "invalid_argument",
+            "--user is not forwarded on the codex-images route (the service "
+            "derives safety_identifier from the codex account). Drop it.",
+            field="user",
+        )
+    if a.model != DEFAULT_MODEL:
+        print(
+            f"pixeltamer: note — model {a.model} was not verified on the "
+            f"codex-images route (only {DEFAULT_MODEL} was tested live); "
+            "the service may reject or silently swap it.",
+            file=sys.stderr,
+        )
+
+
+def _data_uri(path: str) -> str:
+    """Encode a local image file as a data URI for the codex-images edits body.
+
+    @param path filesystem path to a PNG/JPEG/WebP file
+    @return "data:<mime>;base64,<...>" string
+    """
+    fp = Path(path).expanduser()
+    if not fp.exists():
+        _fail("input_not_found", f"file not found: {fp}", path=str(fp))
+    mime = mimetypes.guess_type(fp.name)[0] or "image/png"
+    return f"data:{mime};base64,{base64.b64encode(fp.read_bytes()).decode('ascii')}"
 DEFAULT_QUALITY = "high"
 DEFAULT_CONCURRENCY = 4
 MAX_REFERENCE_IMAGES = 16
@@ -298,13 +545,24 @@ def _uses_gpt_image_2_size_floor(model: str) -> bool:
     """Return whether OpenAI documents the 655,360px floor for this model family.
 
     Custom providers can expose unrelated size rules behind arbitrary model IDs,
-    so only enforce the new floor for GPT Image 2 and 2.5 aliases/snapshots.
+    so only enforce the floor for GPT Image 2 / 2.5 / 2.6 aliases and snapshots.
     """
     normalized = model.lower()
-    return normalized == "gpt-image-2" or normalized.startswith("gpt-image-2-") or normalized.startswith("gpt-image-2.5-")
+    return normalized == "gpt-image-2" or normalized.startswith("gpt-image-2-") or normalized.startswith("gpt-image-2.5-") or normalized.startswith("gpt-image-2.6-")
 
 
-def _validate_size(size: str, model: str) -> None:
+def _is_gpt_image_26(model: str) -> bool:
+    """Return whether the model is the GPT Image 2.6 family.
+
+    2.6 adds `complexity`, GIF output, and SVG output; it drops `input_fidelity`
+    on edits. Feature gating keys off this so a 2.5 model never receives a
+    2.6-only parameter (the API answers unknown params with a 400).
+    """
+    normalized = model.lower()
+    return normalized == "gpt-image-2.6" or normalized.startswith("gpt-image-2.6-")
+
+
+def _validate_size(size: str, model: str, frames: int = 1) -> None:
     """Reject sizes the selected model won't accept, before paying for a roundtrip.
 
     Four constraints, all from OpenAI's spec. Every one of these is a 400 you'd
@@ -315,6 +573,13 @@ def _validate_size(size: str, model: str) -> None:
       - total pixels from 655,360 through 8,294,400 (the upper bound is
         3840x2160, and is also why 2880x2880 is the practical square ceiling)
       - aspect ratio within 3:1 either way
+
+    For GIF output, `size` is per-frame: the 655,360 floor doesn't apply to
+    each frame (small sticker frames are legitimate), but the total budget
+    covers every frame — frames × w × h must stay under the cap. `frames`
+    is the EFFECTIVE count: the server defaults to 9 when frame_count is
+    omitted, so callers must pass 9, not 1, for GIF requests without an
+    explicit --frames.
     """
     if size in ("auto", ""):
         return
@@ -338,7 +603,16 @@ def _validate_size(size: str, model: str) -> None:
             f"{round(h / SIZE_EDGE_MULTIPLE) * SIZE_EDGE_MULTIPLE}"
         )
     pixels = w * h
-    if _uses_gpt_image_2_size_floor(model) and pixels < MIN_TOTAL_PIXELS:
+    if frames > 1:
+        total = pixels * frames
+        if total > MAX_TOTAL_PIXELS:
+            _fail(
+                "invalid_size",
+                f"GIF total pixel budget exceeded: {w}x{h} x {frames} frames "
+                f"= {total:,} > {MAX_TOTAL_PIXELS:,}. Shrink the frame size "
+                "or the frame count.",
+            )
+    elif _uses_gpt_image_2_size_floor(model) and pixels < MIN_TOTAL_PIXELS:
         _fail(
             "invalid_size",
             f"total pixels must be ≥ {MIN_TOTAL_PIXELS:,} "
@@ -371,6 +645,8 @@ _FORMAT_EXTS = {
     "png": (".png",),
     "jpeg": (".jpg", ".jpeg"),
     "webp": (".webp",),
+    "gif": (".gif",),
+    "svg": (".svg",),
 }
 
 
@@ -432,7 +708,28 @@ def _resolve_output_format(a: argparse.Namespace) -> str | None:
     if fmt is None:
         fmt = "png"
 
+    if fmt == "svg":
+        # SVG transparency is real and officially supported — but it's vector
+        # paint order, not an alpha channel, so the raster alpha probe can't
+        # verify it. Allow it, and say the check doesn't apply.
+        print(
+            "pixeltamer: note — SVG transparency is sent as requested but not "
+            "alpha-verified (SVG has no raster alpha channel to measure); "
+            "check the render visually.",
+            file=sys.stderr,
+        )
+        return fmt
+
     if fmt not in ALPHA_CAPABLE_FORMATS:
+        if fmt == "gif":
+            _fail(
+                "invalid_argument",
+                "--background transparent is not offered with GIF output: GIF "
+                "transparency is binary palette transparency, not an alpha "
+                "channel, and pixeltamer's verification can't measure it. "
+                "Use png or webp for cutouts.",
+                field="output-format",
+            )
         _fail(
             "invalid_argument",
             f"--background transparent needs an alpha-capable format; {fmt} has "
@@ -443,7 +740,88 @@ def _resolve_output_format(a: argparse.Namespace) -> str | None:
     return fmt
 
 
+# GIF frames/timing contract (Images 2.6, official docs).
+GIF_MIN_FRAMES = 2
+GIF_MAX_FRAMES = 16
+GIF_DEFAULT_FRAMES = 9  # server default when frame_count is omitted
+GIF_MIN_FRAME_MS = 20
+GIF_MAX_FRAME_MS = 2000
+
+
+def _validate_gif_params(a: argparse.Namespace, fmt: str | None, model: str) -> None:
+    """Pre-flight the GIF-specific parameters before a paid roundtrip.
+
+    Contract (official image-generation guide): `frame_count` (2-16) and
+    `frame_duration_ms` (20-2000, rounded by the API to 10ms steps) are only
+    valid when output_format=gif; GIF requests take no output_compression;
+    `size` is per-frame. Frames/timing passed without a GIF target are a
+    footgun (the params would be silently ignored or 400), so they're a hard
+    reject — the codex wrapper enforces the same rule for its .gif targets.
+
+    @param a - parsed args (reads .frames, .frame_ms, .output_compression)
+    @param fmt - resolved output_format, or None for the API default
+    @param model - selected model id
+    """
+    is_gif = fmt == "gif"
+    wants_frames = getattr(a, "frames", None) is not None
+    wants_ms = getattr(a, "frame_ms", None) is not None
+    if (wants_frames or wants_ms) and not is_gif:
+        _fail(
+            "invalid_argument",
+            "--frames/--frame-ms require GIF output. Add --output-format gif "
+            "(and write to a .gif path), or drop the frame flags.",
+            field="frames",
+        )
+    if wants_frames and not GIF_MIN_FRAMES <= a.frames <= GIF_MAX_FRAMES:
+        _fail(
+            "invalid_argument",
+            f"--frames must be {GIF_MIN_FRAMES}-{GIF_MAX_FRAMES} (got {a.frames})",
+            field="frames",
+        )
+    if wants_ms and not GIF_MIN_FRAME_MS <= a.frame_ms <= GIF_MAX_FRAME_MS:
+        _fail(
+            "invalid_argument",
+            f"--frame-ms must be {GIF_MIN_FRAME_MS}-{GIF_MAX_FRAME_MS} "
+            f"(got {a.frame_ms}); the API rounds to 10ms steps",
+            field="frame-ms",
+        )
+    if fmt in ("gif", "svg") and a.output_compression is not None:
+        _fail(
+            "invalid_argument",
+            "--output-compression applies only to jpeg/webp output; drop it.",
+            field="output-compression",
+        )
+    if getattr(a, "complexity", None) and not _is_gpt_image_26(model):
+        _fail(
+            "invalid_argument",
+            f"--complexity is a GPT Image 2.6 parameter; {model} would reject "
+            "it with a 400. Drop it or switch to a 2.6 model.",
+            field="complexity",
+        )
+
+
 _print_lock = threading.Lock()
+
+
+class _SameOriginRedirect(urllib.request.HTTPRedirectHandler):
+    """Follow same-origin redirects; refuse cross-origin ones with an HTTPError.
+
+    urllib forwards Authorization headers when it follows a redirect. These
+    requests all carry a bearer credential — an API key or a codex OAuth
+    token — so a 30x pointing at another host would hand that credential to
+    whoever controls the Location. Same-origin hops (http→https on one host,
+    trailing-slash fixes) stay allowed.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old = urllib.parse.urlsplit(req.full_url)
+        new = urllib.parse.urlsplit(newurl)
+        if (old.scheme, old.hostname, old.port) == (new.scheme, new.hostname, new.port):
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+        return None
+
+
+_OPENER = urllib.request.build_opener(_SameOriginRedirect)
 
 
 def _send(req: urllib.request.Request, retries: int = 4) -> dict:
@@ -451,7 +829,7 @@ def _send(req: urllib.request.Request, retries: int = 4) -> dict:
     last_err: str | None = None
     for attempt in range(retries):
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            with _OPENER.open(req, timeout=600) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")
@@ -463,7 +841,19 @@ def _send(req: urllib.request.Request, retries: int = 4) -> dict:
                 continue
             # 403 commonly means the org has not been verified for GPT Image access.
             hint = ""
-            if e.code == 403:
+            if e.code == 401 and _CODEX_IMAGES:
+                hint = (
+                    "\n  hint: the codex OAuth token is expired or invalid. Run any "
+                    "`codex` command (or `codex login`) to refresh "
+                    f"{_CODEX_AUTH_PATH}, then retry. No refresh is attempted "
+                    "in-place so codex's own session stays intact."
+                )
+            elif e.code == 403 and _CODEX_IMAGES:
+                hint = (
+                    "\n  hint: chatgpt.com blocked this request before it reached "
+                    "the image service (Cloudflare). Check network/VPN reachability."
+                )
+            elif e.code == 403:
                 hint = (
                     "\n  hint: verify your org for GPT Image models at "
                     "https://platform.openai.com/settings/organization/general"
@@ -478,16 +868,29 @@ def _send(req: urllib.request.Request, retries: int = 4) -> dict:
     sys.exit(last_err or "unknown error")
 
 
+def _request_headers(content_type: str) -> dict:
+    """Auth headers for the active transport.
+
+    @param content_type value for the Content-Type header
+    @return header dict: API-key bearer for api.openai.com, OAuth + codex
+        identity headers for the codex-images route
+    """
+    if _CODEX_IMAGES:
+        return _codex_images_headers()
+    return {
+        "Authorization": f"Bearer {_key()}",
+        "Content-Type": content_type,
+        "Accept": "application/json",
+    }
+
+
 def _post_json(path: str, payload: dict) -> dict:
-    url = DEFAULT_BASE.rstrip("/") + path
+    base = _codex_images_base() if _CODEX_IMAGES else DEFAULT_BASE
+    url = base.rstrip("/") + path
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {_key()}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        headers=_request_headers("application/json"),
         method="POST",
     )
     return _send(req)
@@ -531,11 +934,7 @@ def _post_multipart(path: str, fields: dict, files: dict[str, list[str]]) -> dic
     req = urllib.request.Request(
         url,
         data=body,
-        headers={
-            "Authorization": f"Bearer {_key()}",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Accept": "application/json",
-        },
+        headers=_request_headers(f"multipart/form-data; boundary={boundary}"),
         method="POST",
     )
     return _send(req)
@@ -574,13 +973,58 @@ def _output_paths(out_arg: str | None, n: int) -> list[Path]:
     ]
 
 
-def _write_item(item: dict, dest: Path) -> Path:
-    """Decode b64 or download URL, write to dest, return the resolved path.
+def _sniff_output_format(dest: Path, requested: str | None) -> None:
+    """Verify saved bytes match the requested output format before success.
+
+    `ok: true` has to mean "the asset contract was met". A server that
+    silently falls back (PNG bytes at a .svg path, a still at a .gif path)
+    would otherwise be published as a verified success and flow into batch
+    pipelines unchecked.
+
+    Raster formats other than gif/svg are skipped — their payloads are
+    opaque and the extension match already happened pre-flight; the
+    transparency postcondition covers the png/webp alpha case.
+
+    @param dest written file path
+    @param requested output_format sent with the request, or None
+    @raises RuntimeError on a format mismatch
+    """
+    if requested not in ("svg", "gif"):
+        return
+    head = dest.open("rb").read(512)
+    if requested == "svg":
+        # SVG may start with a BOM, XML declaration, comment or doctype; the
+        # root tag must appear near the head for this to be an SVG document.
+        if b"<svg" not in head.lower():
+            _fail(
+                "output_format_mismatch",
+                f"{dest.name}: requested output_format=svg but the response "
+                f"bytes are not SVG (no <svg> element in the first 512 "
+                f"bytes). The server likely fell back to another format.",
+            )
+        return
+    if not head.startswith(b"GIF8"):
+        _fail(
+            "output_format_mismatch",
+            f"{dest.name}: requested output_format=gif but the response "
+            f"bytes do not carry a GIF signature. The server likely fell "
+            f"back to another format.",
+        )
+
+
+def _write_item(item: dict, dest: Path, requested_format: str | None = None) -> Path:
+    """Decode b64 or download URL, write to dest, sniff format, return path.
 
     Deliberately does NOT print. stdout is a promise about the whole run, and
     only the caller knows whether the run finished — printing from inside a
     worker thread is what let a failed batch emit half its paths and then exit
     non-zero, which a caller reading stdout cannot tell apart from success.
+
+    @param item response data item with b64_json or url
+    @param dest target file path
+    @param requested_format output_format the request asked for, if any
+    @returns resolved written path
+    @raises RuntimeError on download failure or format mismatch
     """
     if item.get("b64_json"):
         dest.write_bytes(base64.b64decode(item["b64_json"]))
@@ -588,10 +1032,12 @@ def _write_item(item: dict, dest: Path) -> Path:
         dest.write_bytes(_download(item["url"]))
     else:
         raise RuntimeError(f"response item missing b64_json/url: {item}")
+    _sniff_output_format(dest, requested_format)
     return dest.resolve()
 
 
-def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]:
+def _run_parallel(n: int, concurrency: int, fn, paths: list[Path],
+                  requested_format: str | None = None) -> list[Path]:
     """Fire n independent calls; return the paths that actually landed.
 
     Genuinely partial-failure tolerant, which is what the docs have always
@@ -607,6 +1053,8 @@ def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]
 
     Exit status carries completeness: 0 when all n landed, non-zero when fewer
     did. The paths on stdout are always real files either way.
+
+    @param requested_format forwarded to _write_item for format sniffing
     """
     results: list[Path | None] = [None] * n
     failures: list[tuple[int, str]] = []
@@ -623,7 +1071,7 @@ def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]
                     raise RuntimeError(
                         f"empty response: {json.dumps(data)[:300]}"
                     )
-                results[i] = _write_item(items[0], paths[i])
+                results[i] = _write_item(items[0], paths[i], requested_format)
             except SystemExit as e:
                 # A worker called sys.exit (e.g. _post_json on a 4xx). Capture
                 # it as this call's failure instead of tearing down the batch.
@@ -659,8 +1107,47 @@ def _run_parallel(n: int, concurrency: int, fn, paths: list[Path]) -> list[Path]
 # ----------------------------------------------------------------------- commands
 
 def cmd_generate(a: argparse.Namespace) -> None:
+    if _CODEX_IMAGES:
+        # Verified surface only: png output, no size control, no complexity.
+        out_fmt = _resolve_output_format(a)
+        _check_extension_matches(out_fmt, a.out)
+        _validate_codex_images_params(a, out_fmt)
+        print(_CODEX_SIZE_NOTE, file=sys.stderr)
+        payload: dict = {
+            "model": a.model,
+            "prompt": a.prompt,
+            "n": 1,
+        }
+        if a.quality:
+            payload["quality"] = a.quality
+        if a.background:
+            global _requested_transparent
+            _requested_transparent = _requested_transparent or a.background == "transparent"
+            payload["background"] = a.background
+        paths = _output_paths(a.out, a.n)
+        if a.n == 1:
+            data = _post_json("/images/generations", payload)
+            items = data.get("data") or []
+            if not items:
+                _fail("response_invalid", f"empty response from the image API: {json.dumps(data)[:300]}", "unknown")
+            _deliver(_write_item(items[0], paths[0], out_fmt))
+            return
+        _run_parallel(
+            n=a.n,
+            concurrency=a.concurrency,
+            fn=lambda: _post_json("/images/generations", payload),
+            paths=paths,
+            requested_format=out_fmt,
+        )
+        return
     a.size = _resolve_size(a.size)
-    _validate_size(a.size, a.model)
+    out_fmt = _resolve_output_format(a)
+    _check_extension_matches(out_fmt, a.out)
+    _validate_gif_params(a, out_fmt, a.model)
+    # Server defaults frame_count to 9 when omitted — validate against that,
+    # not 1, or a small GIF slips past the per-frame budget here and 400s there.
+    frames = (a.frames or GIF_DEFAULT_FRAMES) if out_fmt == "gif" else 1
+    _validate_size(a.size, a.model, frames=frames)
     payload: dict = {
         "model": a.model,
         "prompt": a.prompt,
@@ -669,6 +1156,8 @@ def cmd_generate(a: argparse.Namespace) -> None:
     }
     if a.quality:
         payload["quality"] = a.quality
+    if getattr(a, "complexity", None):
+        payload["complexity"] = a.complexity
     # `style` is a DALL-E-3 parameter. gpt-image models reject it, so sending it
     # turns a harmless no-op flag into a 400. Only forward it when the model
     # actually looks like DALL-E — which keeps it working for anyone pointing
@@ -684,12 +1173,16 @@ def cmd_generate(a: argparse.Namespace) -> None:
             )
     if a.background:
         payload["background"] = a.background
-        global _requested_transparent
+        # Declared global in the codex-images branch above; one global per
+        # name per function — a second one is a compile-time SyntaxError.
         _requested_transparent = _requested_transparent or a.background == "transparent"
-    out_fmt = _resolve_output_format(a)
-    _check_extension_matches(out_fmt, a.out)
     if out_fmt:
         payload["output_format"] = out_fmt
+    if out_fmt == "gif":
+        if a.frames is not None:
+            payload["frame_count"] = a.frames
+        if a.frame_ms is not None:
+            payload["frame_duration_ms"] = a.frame_ms
     if a.output_compression is not None:
         payload["output_compression"] = a.output_compression
     # Legacy DALL-E param. gpt-image models ignore it (they always return b64),
@@ -708,20 +1201,33 @@ def cmd_generate(a: argparse.Namespace) -> None:
         items = data.get("data") or []
         if not items:
             _fail("response_invalid", f"empty response from the image API: {json.dumps(data)[:300]}", "unknown")
-        _deliver(_write_item(items[0], paths[0]))
+        _deliver(_write_item(items[0], paths[0], out_fmt))
         return
     _run_parallel(
         n=a.n,
         concurrency=a.concurrency,
         fn=lambda: _post_json("/images/generations", payload),
         paths=paths,
+        requested_format=out_fmt,
     )
 
 
 def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     """Shared body: 1 image -> edit/inpaint, 2-16 images -> compose."""
-    a.size = _resolve_size(a.size)
-    _validate_size(a.size, a.model)
+    codex_images = _CODEX_IMAGES
+    if codex_images:
+        print(_CODEX_SIZE_NOTE, file=sys.stderr)
+    else:
+        a.size = _resolve_size(a.size)
+    out_fmt = _resolve_output_format(a)
+    _check_extension_matches(out_fmt, a.out)
+    if codex_images:
+        _validate_codex_images_params(a, out_fmt)
+    _validate_gif_params(a, out_fmt, a.model)
+    if not codex_images:
+        # Same effective-count rule as generate: server default is 9 frames.
+        frames = (a.frames or GIF_DEFAULT_FRAMES) if out_fmt == "gif" else 1
+        _validate_size(a.size, a.model, frames=frames)
     refs = list(a.image)
     if not refs:
         _fail("invalid_argument", "at least one --image required", field="image")
@@ -741,16 +1247,29 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
     }
     if a.quality:
         fields["quality"] = a.quality
+    if getattr(a, "complexity", None):
+        fields["complexity"] = a.complexity
     if getattr(a, "input_fidelity", None):
+        if _is_gpt_image_26(a.model):
+            _fail(
+                "invalid_argument",
+                "--input-fidelity is not supported on GPT Image 2.6 edits; the "
+                "API rejects requests that include it. Drop it, or use a 2.5 "
+                "model via --model gpt-image-2.5-sunburst.",
+                field="input-fidelity",
+            )
         fields["input_fidelity"] = a.input_fidelity
     if a.background:
         fields["background"] = a.background
         global _requested_transparent
         _requested_transparent = _requested_transparent or a.background == "transparent"
-    out_fmt = _resolve_output_format(a)
-    _check_extension_matches(out_fmt, a.out)
     if out_fmt:
         fields["output_format"] = out_fmt
+    if out_fmt == "gif":
+        if a.frames is not None:
+            fields["frame_count"] = str(a.frames)
+        if a.frame_ms is not None:
+            fields["frame_duration_ms"] = str(a.frame_ms)
     if a.output_compression is not None:
         fields["output_compression"] = str(a.output_compression)
     # See the note in cmd_generate — kept for proxy compatibility only.
@@ -767,9 +1286,26 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
             _fail("invalid_argument", "--mask is only valid with `edit` (single source)", field="mask")
         files["mask"] = [a.mask]
 
+    # codex-images edits take JSON with data-URI images, not multipart —
+    # the route answers multipart with 400 "Unsupported content type".
+    codex_payload: dict | None = None
+    if codex_images:
+        codex_payload = {
+            "model": a.model,
+            "prompt": a.prompt,
+            "n": 1,
+            "images": [{"image_url": _data_uri(p)} for p in refs],
+        }
+        if a.quality:
+            codex_payload["quality"] = a.quality
+        if a.background:
+            codex_payload["background"] = a.background
+
     paths = _output_paths(a.out, a.n)
 
     def _call() -> dict:
+        if codex_images:
+            return _post_json("/images/edits", codex_payload)
         return _post_multipart("/images/edits", fields, files)
 
     if a.n == 1:
@@ -777,9 +1313,10 @@ def _edit_or_compose(a: argparse.Namespace, mode: str) -> None:
         items = data.get("data") or []
         if not items:
             _fail("response_invalid", f"empty response from the image API: {json.dumps(data)[:300]}", "unknown")
-        _deliver(_write_item(items[0], paths[0]))
+        _deliver(_write_item(items[0], paths[0], out_fmt))
         return
-    _run_parallel(n=a.n, concurrency=a.concurrency, fn=_call, paths=paths)
+    _run_parallel(n=a.n, concurrency=a.concurrency, fn=_call, paths=paths,
+                  requested_format=out_fmt)
 
 
 def cmd_edit(a: argparse.Namespace) -> None:
@@ -846,8 +1383,18 @@ def main() -> None:
     g.add_argument("--style", choices=["vivid", "natural"])
     g.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
-    g.add_argument("--output-format", choices=["png", "jpeg", "webp"],
-                   help="file format of the returned image (gpt-image models only)")
+    g.add_argument("--output-format", choices=["png", "jpeg", "webp", "gif", "svg"],
+                   help="file format of the returned image (gif = animated, "
+                        "2.6 models; pair with --frames/--frame-ms; svg = 2.6 "
+                        "vector export)")
+    g.add_argument("--frames", type=int, metavar="2-16",
+                   help="GIF frame count (with --output-format gif; API default 9)")
+    g.add_argument("--frame-ms", type=int, metavar="20-2000",
+                   help="GIF frame duration in ms (with --output-format gif; "
+                        "default 200, rounded to 10ms)")
+    g.add_argument("--complexity", choices=["low", "medium", "high"],
+                   help="2.6 planning depth (default high server-side; lower = "
+                        "faster, good for quick edits)")
     g.add_argument("--output-compression", type=int, metavar="0-100",
                    help="compression level for jpeg/webp output only")
     g.add_argument("--format", choices=["url", "b64_json"],
@@ -879,7 +1426,13 @@ def main() -> None:
                         "logos and fine texture when supported by the model/host")
     e.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
-    e.add_argument("--output-format", choices=["png", "jpeg", "webp"])
+    e.add_argument("--output-format", choices=["png", "jpeg", "webp", "gif", "svg"])
+    e.add_argument("--frames", type=int, metavar="2-16",
+                   help="GIF frame count (with --output-format gif; API default 9)")
+    e.add_argument("--frame-ms", type=int, metavar="20-2000",
+                   help="GIF frame duration in ms (with --output-format gif)")
+    e.add_argument("--complexity", choices=["low", "medium", "high"],
+                   help="2.6 planning depth; low suits focused edits")
     e.add_argument("--output-compression", type=int, metavar="0-100")
     e.add_argument("--format", choices=["url", "b64_json"],
                    help="legacy response_format; ignored by gpt-image models")
@@ -909,7 +1462,13 @@ def main() -> None:
                         "logos and fine texture when supported by the model/host")
     c.add_argument("--background", choices=["transparent", "opaque", "auto"],
                    help="transparent needs --output-format png|webp (auto-pinned to png)")
-    c.add_argument("--output-format", choices=["png", "jpeg", "webp"])
+    c.add_argument("--output-format", choices=["png", "jpeg", "webp", "gif", "svg"])
+    c.add_argument("--frames", type=int, metavar="2-16",
+                   help="GIF frame count (with --output-format gif; API default 9)")
+    c.add_argument("--frame-ms", type=int, metavar="20-2000",
+                   help="GIF frame duration in ms (with --output-format gif)")
+    c.add_argument("--complexity", choices=["low", "medium", "high"],
+                   help="2.6 planning depth; low suits focused edits")
     c.add_argument("--output-compression", type=int, metavar="0-100")
     c.add_argument("--format", choices=["url", "b64_json"],
                    help="legacy response_format; ignored by gpt-image models")
@@ -921,7 +1480,7 @@ def main() -> None:
 
     started = time.time()
     command = "unknown"
-    backend = "api"
+    backend = "codex-images" if _CODEX_IMAGES else "api"
 
     try:
         args = ap.parse_args()
@@ -960,13 +1519,16 @@ def main() -> None:
         sys.exit(1)
 
     # The postcondition applies whether or not the caller asked for JSON: a
-    # transparent request that produced an opaque file failed, and the exit code
-    # should say so either way.
-    described = [_describe_output(pth) for pth in _outputs] if JSON_MODE else []
+    # transparent request that produced an opaque file failed, and the exit
+    # code should say so either way. (Running it only under --json once meant
+    # plain invocations shipped opaque cutouts as green successes.)
+    described = [_describe_output(pth) for pth in _outputs]
     try:
-        if JSON_MODE:
-            _check_transparency_postcondition(described)
+        _check_transparency_postcondition(described)
     except PixeltamerError as e:
+        if not JSON_MODE:
+            print(f"ERROR: {e.message}", file=sys.stderr)
+            sys.exit(1)
         _emit_error(command, backend, started, e.code, e.message,
                     e.retryable, {k: v for k, v in e.details.items()
                                   if k != "exit_code"})
