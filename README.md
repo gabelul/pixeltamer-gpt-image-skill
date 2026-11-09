@@ -115,7 +115,6 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 | Edit (no mask) | All three: API and codex-images post to the Images API, codex uses the OAuth Responses API ([gallery #8](gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof) proved fidelity) |
 | Compose 2–16 references into one | All three: API native, codex via OAuth, codex-images via JSON edits |
 | Mask-based inpainting | `--backend api` only — the codex Responses API doesn't take a mask parameter |
-| Compose 2–16 references into one | `--backend api` |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
 | Run on a teammate's machine without sharing creds | `--backend codex` (each user signs in separately) |
 
