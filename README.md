@@ -2,11 +2,15 @@
   <img src=".github/assets/hero-with-text.png" alt="pixeltamer — image generation skill for AI coding agents" width="100%"/>
 </p>
 
-# pixeltamer — image generation skill for AI coding agents | GPT Image 2.5 toolkit
+# pixeltamer — image generation skill for AI coding agents | GPT Image 2.6 toolkit
 
 Six different image-gen skills were rotting in my `to_check/` folder, each doing one thing well and three things badly. So I merged them, kept the parts that earned their keep, dropped the rest. This is the result — one skill, three backends, three modes, zero generic-AI-slop output.
 
-Generate, edit, and compose images with GPT Image 2.5 from inside Claude Code, Codex CLI, OpenCode, Cursor — or any agent that reads `SKILL.md`. API calls default to fast `gpt-image-2.5-flare`; set `OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst` when quality and edit precision matter more than latency. Bring an OpenAI API key OR sign in to your ChatGPT subscription via codex; same prompts, same recipes, your call on how to pay. Ships with a prompting doctrine that drops the "8K, ultra detailed, masterpiece" magic words this model actively hates, seven production recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot — the new mascot recipe has a phased Discovery → Concept Lock → Production → Maintenance workflow with empirically-validated format choices), a curated `playbook/` of remixable prompts for character-sheets and typography-posters, a central `references/index.md` routing map so the right recipe gets loaded on first try, and a 78-test suite covering model selection, the multi-image batch verifier, transparency, and index staleness. Zero runtime dependencies — every backend and helper runs on stock bash / Python stdlib / Node, nothing to `npm install`.
+Generate, edit, and compose images with GPT Image 2.6 from inside Claude Code, Codex CLI, OpenCode, Cursor, or any agent that reads `SKILL.md`. API calls default to `gpt-image-2.6-flare`; set `OPENAI_IMAGE_MODEL=gpt-image-2.6-sunburst` when quality matters more than latency. Bring an OpenAI API key or use your ChatGPT subscription through codex. Same prompts, same recipes; you pick how to pay.
+
+The API backend handles transparent PNGs with a verified alpha channel, animated GIFs (`--frames`, `--frame-ms`), and SVG export. No key? The codex backends spend your ChatGPT subscription instead, and `--backend codex-images` hits the ChatGPT image service over plain HTTP, which makes it the fastest way to burn that quota.
+
+It ships a prompting doctrine that drops the "8K, ultra detailed, masterpiece" magic words this model actively hates, seven production recipes, a playbook of remixable prompts, an index that routes each request to the right reference on the first try, and a 183-test suite. Zero runtime dependencies: stock bash, Python stdlib, and Node. Nothing to `npm install`.
 
 Works in Claude Code, Codex CLI, OpenCode, Cursor, and 50+ other agents via [the Skills CLI](https://github.com/vercel-labs/skills).
 
@@ -80,13 +84,13 @@ pixeltamer doctor      # diagnose which backends are available
 pixeltamer config      # interactive backend setup
 ```
 
-> **First call says `Permission denied`?** The `skills` CLI strips execute bits when it copies files, so the dispatcher lands non-executable. Restore it once — `chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer` (adjust the path for your agent) — then `doctor` self-heals everything else. Full explanation in [Troubleshooting](#troubleshooting). You'll need this one line again after each `npx skills update`, until the [upstream fix](https://github.com/vercel-labs/skills) lands.
+> **First call says `Permission denied`?** The `skills` CLI strips execute bits when it copies files. Fix it once with `chmod +x` on the dispatcher, or run it through `bash`; details in [Troubleshooting](#troubleshooting). You'll need this again after each `npx skills update`, until the [upstream fix](https://github.com/vercel-labs/skills) lands.
 
 Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the API path, or `codex login` for the codex paths. Auto-detect picks API if a key is set, else codex. Override with `--backend api|codex|codex-images` per call or `PIXELTAMER_BACKEND` env var.
 
 **Tuning the codex backend.** codex generations run under a timeout watchdog so a stalled `image_gen` call can't hang forever. `PIXELTAMER_CODEX_TIMEOUT` (seconds, default `360`) sets how long a single generation may run before it's killed; `PIXELTAMER_CODEX_KILL_GRACE` (default `5`) is the SIGTERM→SIGKILL gap. A timed-out generation exits `124` — distinct from `1` (ordinary failure), `2` (bad usage), and `127` (codex not installed / not logged in).
 
-**Running inside a container.** Set `PIXELTAMER_CODEX_SHELLLESS=1` when the script itself runs inside a container (CI, bot runtimes, dockerized agents). A nested `codex exec` tries to build its bubblewrap sandbox and dies — the container's seccomp profile blocks the namespace unshare it needs. The shellless mode spawns an image-only child (`features.shell_tool=false`, read-only sandbox, `image_generation` on) that skips sandbox construction entirely; the PNG lands in `~/.codex/generated_images/` and the script's recovery scan publishes it to `-o`. No other flags change.
+**Running inside a container.** Set `PIXELTAMER_CODEX_SHELLLESS=1` when the script itself runs inside a container (CI, bot runtimes, dockerized agents). A nested `codex exec` tries to build its bubblewrap sandbox and dies: the container's seccomp profile blocks the namespace unshare it needs. The shellless mode spawns an image-only child (`features.shell_tool=false`, read-only sandbox, `image_generation` on) that skips sandbox construction entirely; the PNG lands in `~/.codex/generated_images/` and the script's recovery scan publishes it to `-o`. No other flags change.
 
 ---
 
@@ -96,7 +100,7 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 2. **Pick a backend** — auto-detects API key first, falls back to codex CLI. Override per call with `--backend`.
 3. **Build the prompt** — applies the canonical structure (Intent → Scene → Subject → Details → Text → Style → Constraints), drops magic words, quotes any text that should appear in the image.
 4. **Call the right transport** — Python urllib → `/images/generations` or `/images/edits` for the API path; bash → `codex exec` for codex-backend generation; Python urllib → `/backend-api/codex/responses` (the Codex Responses API, with ChatGPT OAuth credentials and proxy-aware base URL resolution from `~/.codex/config.toml`) for codex-backend edit + compose; Python urllib → `chatgpt.com/backend-api/codex/images/*` with the codex OAuth token for `--backend codex-images` (subscription quota without the agent). The codex backend uses two transports because the codex CLI's `image_gen` tool is generation-only; the OAuth Responses API path adds edit + compose without an API key.
-5. **Verify visually** — every generated PNG gets `Read`-loaded back and checked against the prompt before claiming success. Image gen is stochastic; "API succeeded" ≠ "image is correct."
+5. **Verify visually** — every generated image gets `Read`-loaded back and checked against the prompt before claiming success. Image gen is stochastic; "API succeeded" ≠ "image is correct."
 6. **Surface or iterate** — print the absolute path on success, or change one prompt dimension and regenerate on failure.
 
 ---
@@ -108,8 +112,8 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 | Fastest single image | `--backend api` |
 | Don't have / don't want an API key | `--backend codex` (uses ChatGPT subscription) |
 | ChatGPT quota at API speed, no agent in the loop | `--backend codex-images` — direct HTTP to the ChatGPT image service on your codex token. PNG only, no size control, transparent verified |
-| Edit (no mask) | either backend — API uses `/v1/images/edits`, codex uses the OAuth Responses API ([gallery #8](gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof) proved fidelity) |
-| Multi-reference compose | either backend — API or codex-OAuth, both work, codex-OAuth needs no API key |
+| Edit (no mask) | All three: API and codex-images post to the Images API, codex uses the OAuth Responses API ([gallery #8](gallery/README.md#8-ai-image-models-comparison--codex-oauth-edit-proof) proved fidelity) |
+| Compose 2–16 references into one | All three: API native, codex via OAuth, codex-images via JSON edits |
 | Mask-based inpainting | `--backend api` only — the codex Responses API doesn't take a mask parameter |
 | Compose 2–16 references into one | `--backend api` |
 | Custom OpenAI-compatible host (jmrai, ZenMux, OpenRouter) | API with `OPENAI_IMAGE_BASE_URL` set |
@@ -123,6 +127,7 @@ Or skip `config` and just set the credentials yourself: `OPENAI_API_KEY` for the
 | Edit / inpaint | yes | no | edit only, no mask |
 | Multi-reference compose | yes (up to 16) | no | yes (up to 16) |
 | Mask / region edit | yes | no | no |
+| Output formats | png, jpeg, webp, gif, svg | png | png |
 | Custom base URL / proxy | yes | no | no (pinned to chatgpt.com) |
 
 ---
@@ -147,7 +152,7 @@ pixeltamer generate -p "..." --size 1536x1024 --quality high -o slide.png
 # 4 variants in parallel (API only — fires 4 concurrent calls)
 pixeltamer generate -p "..." -n 4 --concurrency 4 -o variants/
 
-# transparent PNG with a real alpha channel — works on both backends for generate
+# transparent PNG with a real alpha channel — works on all three backends
 # note: your prompt outranks the flag — describe a backdrop and you get one
 pixeltamer generate -p "A single brass desk key, isolated object on fully transparent alpha. No backdrop, no surface, no cast shadow." --background transparent -o key.png
 
@@ -182,13 +187,14 @@ pixeltamer/
 │   ├── pixeltamer              bash dispatcher, auto-detects backend
 │   ├── pixeltamer_api.py       Python API client, zero deps (urllib only)
 │   ├── pixeltamer_codex.sh     codex CLI wrapper with dual invocation + fallback
+│   ├── pixeltamer_codex_oauth.py  OAuth Responses transport (codex edit + compose)
 │   ├── verify-images.mjs       multi-image batch verifier orchestrator
-│   └── lib/                    parser + verifier + status writer (pure functions)
+│   └── lib/                    parser + verifier + status writer + gif-inspect (pure functions)
 ├── references/                 prompting doctrine + index.md routing map + backend guides + multi-ref mastery + post-processing
 ├── recipes/                    7 deep how-to recipes (infographic, meta-ad, viral-linkedin, ui-mockup, editorial-cover, product-photo, mascot)
 ├── playbook/                   curated remix prompts (v1: character-sheets, typography-posters); BACKLOG.md stages v2/v3/v4
 ├── examples/                   4 demonstration PNGs (~3 MB)
-└── tests/                      78 tests — model selection + parser + verifier + status writer + image/alpha readers + index sync
+└── tests/                      183 tests — model selection + parser + verifier + status writer + GIF/SVG readers + codex wrapper + index sync
 ```
 
 ---
@@ -210,6 +216,7 @@ Plus [50+ more agents](https://github.com/vercel-labs/skills) via the Skills CLI
 
 - **For the API backend:** an `OPENAI_API_KEY` with GPT Image org verification (https://platform.openai.com/settings/organization/general). Python 3.7+ on the machine.
 - **For the codex backend:** `npm install -g @openai/codex`, then `codex login`. ChatGPT Plus / Team / Enterprise subscription.
+- **For codex-images:** nothing extra; it replays the same codex login against the ChatGPT image service. PNG only.
 - **For batch mode:** Node.js 18+ (covered by most recent npm installs).
 - **For multi-target install:** `npx` (ships with npm).
 
@@ -225,18 +232,18 @@ The `skills` CLI's file copy doesn't preserve POSIX mode bits, so a fresh instal
 /Users/you/.local/bin/pixeltamer: line 2: /Users/you/.claude/skills/pixeltamer/scripts/pixeltamer: Permission denied
 ```
 
-**As of v0.5.1, the dispatcher itself is the only file that needs `+x`.** Every other script runs through its interpreter (`python3` / `node` / `bash`), so a stripped bit on them no longer matters — and the dispatcher self-heals those anyway as belt-and-suspenders. But the dispatcher is launched *by path* through the `~/.local/bin/pixeltamer` shim, so it must be executable, and it can't restore its own bit (it has to run first). Two one-liners, either works:
+**As of v0.5.1, the dispatcher itself is the only file that needs `+x`.** Every other script runs through its interpreter (`python3` / `node` / `bash`), so a stripped bit on them no longer matters, and the dispatcher self-heals those anyway as belt-and-suspenders. But the dispatcher is launched *by path* through the `~/.local/bin/pixeltamer` shim, so it must be executable, and it can't restore its own bit (it has to run first). Two one-liners, either works:
 
 ```bash
 # restore the bit permanently:
 chmod +x ~/.claude/skills/pixeltamer/scripts/pixeltamer
 # adjust path for other agents: ~/.codex/skills/..., ~/.agents/skills/..., etc.
 
-# ...or run it through bash without changing perms — it self-heals the rest from there:
+# ...or run it through bash without changing perms, it self-heals the rest from there:
 bash ~/.claude/skills/pixeltamer/scripts/pixeltamer doctor
 ```
 
-This is an installer bug, not a pixeltamer bug — tracked upstream in the [`skills` CLI](https://github.com/vercel-labs/skills). Until that's fixed, the self-heal makes it a one-command recovery.
+This is an installer bug, not a pixeltamer bug, and it's tracked upstream in the [`skills` CLI](https://github.com/vercel-labs/skills). Until that's fixed, the self-heal makes it a one-command recovery.
 
 ---
 
@@ -251,4 +258,4 @@ Other tools for agents that care about quality:
 
 ---
 
-Built by Gabi @ [Booplex.com](https://booplex.com) — because AI agents are getting scary good at generating images, and someone needs to make sure 'generated' doesn't become synonymous with 'generic'. MIT.
+Built by Gabi at [Booplex](https://booplex.com/projects/pixeltamer) — because AI agents are getting scary good at generating images, and someone needs to make sure 'generated' doesn't become synonymous with 'generic'. MIT.
